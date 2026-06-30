@@ -65,18 +65,41 @@ El workflow [`.github/workflows/release.yml`](.github/workflows/release.yml) com
 | macOS (Apple Silicon) | `.dmg`, `.app` |
 | macOS (Intel) | `.dmg`, `.app` |
 
-**Ejecución manual:** GitHub › Actions › *Build release* › *Run workflow*.
+**Disparadores:**
 
-**Publicar versión:** crea un tag `v*` (p. ej. `v0.1.0`) y haz push. Se suben los
-instaladores y se crea un **GitHub Release en borrador** para revisar antes de publicar.
+| Evento | Qué hace |
+|--------|----------|
+| Push a `main` | Compila y sube artefactos (sin Release) |
+| Push de tag `v*` (p. ej. `v0.1.0`) | Compila + **GitHub Release** en borrador |
+| Manual | Actions › *Build release* › *Run workflow* |
+
+**Publicar versión:** `git tag v0.1.0 && git push origin v0.1.0`
 
 **Secret obligatorio para CI:** en el repo, Settings › Secrets › Actions, crea
 `ONEDRIVE_CLIENT_ID` con tu Client ID de Azure. El workflow **falla al inicio** si
 falta, tiene el valor de ejemplo o no es un UUID válido. El ID se empotra en los
 instaladores durante la compilación (`src-tauri/build.rs`).
 
-> Los `.dmg` de CI no están firmados con certificado Apple. En macOS puede hacer
-> falta clic derecho › Abrir la primera vez.
+### Instalar en macOS (builds de CI)
+
+Los instaladores generados en GitHub Actions **no están firmados ni notarizados** con
+certificado Apple. macOS puede mostrar *«está dañado y no puede abrirse»* aunque el
+archivo esté bien; es Gatekeeper bloqueando apps no verificadas.
+
+1. Descarga el artefacto (`niblet-macos-arm64` o `niblet-macos-x64`) y descomprímelo.
+2. Arrastra `Niblet.app` (carpeta `macos/` dentro del artefacto) a **Aplicaciones**.
+3. En Terminal, quita la cuarentena de descarga:
+
+   ```bash
+   xattr -cr /Applications/Niblet.app
+   ```
+
+4. Abre la app con **clic derecho → Abrir** (no doble clic) y confirma **Abrir**.
+   Solo hace falta la primera vez.
+
+Si montaste el `.dmg` y falla, usa el `.app` del artefacto directamente; suele ser
+más fiable. Para distribución pública sin estos pasos haría falta Apple Developer
+Program y firmar/notarizar en CI.
 
 ## Estructura
 

@@ -28,6 +28,11 @@ interface TabsState {
   tabs: EditorTab[];
   activeTabId: string | null;
   previewTabId: string | null;
+  /** Historial de navegación (ids de pestañas visitadas). */
+  history: string[];
+  historyIndex: number;
+  goBack: () => Promise<void>;
+  goForward: () => Promise<void>;
   openPreview: (path: string) => Promise<void>;
   openPinned: (path: string) => Promise<void>;
   openImageTab: (path: string) => Promise<void>;
@@ -112,6 +117,36 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   tabs: [],
   activeTabId: null,
   previewTabId: null,
+  history: [],
+  historyIndex: -1,
+
+  goBack: async () => {
+    const { history, historyIndex, tabs } = get();
+    let idx = historyIndex - 1;
+    while (idx >= 0 && !tabs.some((t) => t.id === history[idx])) idx--;
+    if (idx < 0) return;
+    navigatingHistory = true;
+    try {
+      set({ historyIndex: idx });
+      await get().setActiveTab(history[idx]);
+    } finally {
+      navigatingHistory = false;
+    }
+  },
+
+  goForward: async () => {
+    const { history, historyIndex, tabs } = get();
+    let idx = historyIndex + 1;
+    while (idx < history.length && !tabs.some((t) => t.id === history[idx])) idx++;
+    if (idx >= history.length) return;
+    navigatingHistory = true;
+    try {
+      set({ historyIndex: idx });
+      await get().setActiveTab(history[idx]);
+    } finally {
+      navigatingHistory = false;
+    }
+  },
 
   getTab: (id) => get().tabs.find((t) => t.id === id),
 
@@ -127,7 +162,14 @@ export const useTabsStore = create<TabsState>((set, get) => ({
     return tab?.kind === "note" ? (tab.path ?? null) : null;
   },
 
-  resetTabs: () => set({ tabs: [], activeTabId: null, previewTabId: null }),
+  resetTabs: () =>
+    set({
+      tabs: [],
+      activeTabId: null,
+      previewTabId: null,
+      history: [],
+      historyIndex: -1,
+    }),
 
   reloadTabFromDisk: async (path) => {
     const tab = get().getNoteTab(path);
@@ -520,3 +562,19 @@ export const useTabsStore = create<TabsState>((set, get) => ({
     updateLastOpened(path);
   },
 }));
+
+// Flag para no registrar en el historial cuando navegamos con back/forward.
+let navigatingHistory = false;
+
+// Registrar cada cambio de pestaña activa en el historial de navegación.
+useTabsStore.subscribe((state, prev) => {
+  if (navigatingHistory) return;
+  if (state.activeTabId === prev.activeTabId) return;
+  const id = state.activeTabId;
+  if (!id) return;
+  const { history, historyIndex } = state;
+  if (history[historyIndex] === id) return;
+  const next = history.slice(0, historyIndex + 1);
+  next.push(id);
+  useTabsStore.setState({ history: next, historyIndex: next.length - 1 });
+});

@@ -160,3 +160,9 @@ export const detectConflicts = (vaultPath: string) =>
 
 export const watchVault = (vaultPath: string) =>
   invoke<void>("watch_vault", { vaultPath });
+
+export const createDirectory = (path: string) =>
+  invoke<void>("create_directory", { path });
+
+export const setTitlebarTheme = (dark: boolean) =>
+  invoke<void>("set_titlebar_theme", { dark });

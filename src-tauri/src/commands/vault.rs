@@ -586,3 +586,10 @@ pub fn write_file_bytes(path: String, data: Vec<u8>) -> Result<(), String> {
     }
     fs::write(p, data).map_err(|e| format!("No se pudo escribir el archivo: {e}"))
 }
+
+/// Crea una carpeta y todos los directorios padre necesarios.
+#[tauri::command]
+pub fn create_directory(path: String) -> Result<(), String> {
+    std::fs::create_dir_all(&path)
+        .map_err(|e| format!("No se pudo crear la carpeta: {e}"))
+}

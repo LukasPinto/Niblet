@@ -146,7 +146,7 @@ export default function TopBar() {
     sameRelPath(activeEntry.rel_path, todayDailyRel);
 
   return (
-    <header className="topbar">
+    <header className="topbar" data-tauri-drag-region>
       <BreadcrumbTrail
         segments={segments}
         dirty={view === "note" && activeTab?.kind === "note" && dirty}

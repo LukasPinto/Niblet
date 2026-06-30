@@ -20,6 +20,7 @@ export default function Sidebar() {
   const activeTab = useTabsStore((s) => s.activeTab());
   const togglePalette = useUiStore((s) => s.togglePalette);
   const openConflict = useUiStore((s) => s.openConflict);
+  const recentVaults = useVaultStore((s) => s.recentVaults);
   const remoteFolder = useVaultStore((s) => s.config.onedrive?.remoteFolder);
   const lastSync = useVaultStore((s) => s.config.onedrive?.lastSync);
   const syncStatus = useSyncStore((s) => s.status);
@@ -106,6 +107,33 @@ export default function Sidebar() {
                 >
                   📂 Abrir otro vault…
                 </button>
+                {recentVaults.filter((r) => r.path !== vaultPath).length > 0 && (
+                  <>
+                    <div className="vault-menu-sep" />
+                    <div className="vault-menu-label">Recientes</div>
+                    {recentVaults
+                      .filter((r) => r.path !== vaultPath)
+                      .map((r) => (
+                        <button
+                          key={r.path}
+                          type="button"
+                          className="vault-menu-item vault-menu-recent"
+                          role="menuitem"
+                          title={r.path}
+                          onClick={() => {
+                            setVaultMenuOpen(false);
+                            void useVaultStore.getState().openRecentVault(r.path);
+                          }}
+                        >
+                          <span className="vault-menu-recent-badge">
+                            {r.name.charAt(0).toUpperCase()}
+                          </span>
+                          <span className="vault-menu-recent-name">{r.name}</span>
+                        </button>
+                      ))}
+                    <div className="vault-menu-sep" />
+                  </>
+                )}
                 <button
                   type="button"
                   className="vault-menu-item"

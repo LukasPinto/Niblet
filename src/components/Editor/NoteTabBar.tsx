@@ -43,8 +43,15 @@ export default function NoteTabBar() {
   const closeTab = useTabsStore((s) => s.closeTab);
   const pinTab = useTabsStore((s) => s.pinTab);
   const reorderTabs = useTabsStore((s) => s.reorderTabs);
+  const goBack = useTabsStore((s) => s.goBack);
+  const goForward = useTabsStore((s) => s.goForward);
+  const history = useTabsStore((s) => s.history);
+  const historyIndex = useTabsStore((s) => s.historyIndex);
   const notes = useNotesStore((s) => s.notes);
   const images = useNotesStore((s) => s.images);
+
+  const canGoBack = historyIndex > 0;
+  const canGoForward = historyIndex < history.length - 1;
 
   const barRef = useRef<HTMLDivElement>(null);
   const dragSession = useRef<{
@@ -134,7 +141,34 @@ export default function NoteTabBar() {
   };
 
   return (
-    <div className="note-tab-bar" ref={barRef}>
+    <div className="tab-bar-row">
+      <div className="tab-nav">
+        <button
+          type="button"
+          className="tab-nav-btn"
+          disabled={!canGoBack}
+          title="Atrás"
+          aria-label="Atrás"
+          onClick={() => void goBack()}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className="tab-nav-btn"
+          disabled={!canGoForward}
+          title="Adelante"
+          aria-label="Adelante"
+          onClick={() => void goForward()}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      </div>
+      <div className="note-tab-bar" ref={barRef}>
       {tabs.map((tab, index) => {
         const isPreview = !tab.pinned && tab.id === previewTabId;
         const isActive = tab.id === activeTabId;
@@ -192,6 +226,7 @@ export default function NoteTabBar() {
           </div>
         );
       })}
+      </div>
     </div>
   );
 }

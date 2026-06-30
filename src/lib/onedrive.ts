@@ -151,7 +151,7 @@ interface RemoteItem {
   modified: string;
 }
 
-async function listRemote(folder: string): Promise<RemoteItem[]> {
+export async function listRemote(folder: string): Promise<RemoteItem[]> {
   const items: RemoteItem[] = [];
   async function walk(prefix: string): Promise<void> {
     const path = prefix ? `${folder}/${prefix}` : folder;
@@ -189,7 +189,7 @@ async function uploadFile(
   return data.lastModifiedDateTime as string;
 }
 
-async function downloadFile(
+export async function downloadFile(
   folder: string,
   relPath: string,
   asBinary: boolean,
@@ -361,6 +361,57 @@ async function syncMetadataFiles(
     }
   }
   saveState(vault, state);
+}
+
+/**
+ * Descarga todos los archivos de un vault remoto a una carpeta local vacía.
+ * onProgress se llama tras cada archivo con (descargados, total).
+ * El estado de sync se guarda al final para que la siguiente llamada a
+ * syncAll no vuelva a descargar todo.
+ */
+export async function cloneVaultFromRemote(
+  remoteFolder: string,
+  localPath: string,
+  onProgress: (done: number, total: number) => void,
+): Promise<void> {
+  const remoteFiles = await listRemote(remoteFolder);
+  const total = remoteFiles.length;
+  const state: SyncState = {};
+
+  onProgress(0, total);
+
+  for (let i = 0; i < remoteFiles.length; i++) {
+    const rem = remoteFiles[i];
+    const isBinary = isBinaryRel(rem.relPath);
+    const absPath = `${localPath}/${rem.relPath}`;
+    try {
+      const content = await downloadFile(remoteFolder, rem.relPath, isBinary);
+      if (isBinary) {
+        await writeFileBytes(absPath, Array.from(content as Uint8Array));
+      } else {
+        await writeNote(absPath, content as string);
+      }
+      state[rem.relPath] = {
+        localHash: await hashFile(absPath),
+        remoteModified: rem.modified,
+      };
+    } catch {
+      // Saltar archivos fallidos; el siguiente sync los reintentará.
+    }
+    onProgress(i + 1, total);
+  }
+
+  // Intentar bajar también los archivos de metadatos (.niblet/*.json).
+  for (const rel of [CONFIG_REL, DB_VIEWS_REL]) {
+    try {
+      const content = await downloadFile(remoteFolder, rel, false);
+      await writeNote(`${localPath}/${rel}`, content as string);
+    } catch {
+      /* puede que no existan aún en el remoto */
+    }
+  }
+
+  saveState(localPath, state);
 }
 
 /** Resuelve un conflicto concreto a favor de un lado y actualiza el estado. */

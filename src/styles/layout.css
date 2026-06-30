@@ -211,6 +211,37 @@
   white-space: nowrap;
 }
 .vault-menu-item:hover { background: var(--surface2); }
+.vault-menu-sep {
+  height: 1px;
+  background: var(--line);
+  margin: 4px 6px;
+}
+.vault-menu-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 4px 10px 2px;
+}
+.vault-menu-recent { gap: 9px; }
+.vault-menu-recent-badge {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--accent) 22%, var(--surface2));
+  color: var(--text);
+  font-weight: 700;
+  font-size: 11px;
+  display: grid;
+  place-items: center;
+}
+.vault-menu-recent-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .search {
   display: flex;
@@ -530,6 +561,9 @@
   background: color-mix(in srgb, var(--base) 80%, transparent);
   backdrop-filter: blur(8px);
 }
+.macos .topbar {
+  padding-left: 80px; /* espacio para semáforos macOS */
+}
 .crumbs { display: flex; align-items: center; gap: 0; font-size: 13px; color: var(--muted); min-width: 0; flex-wrap: nowrap; overflow: hidden; }
 .crumbs .crumb-wrap { display: inline-flex; align-items: center; gap: 8px; min-width: 0; flex-shrink: 1; }
 .crumbs .sep { opacity: 0.5; flex-shrink: 0; }
@@ -561,14 +595,47 @@
 }
 
 /* Note tab bar (VS Code style) */
+.tab-bar-row {
+  display: flex;
+  align-items: stretch;
+  flex: none;
+  border-bottom: 1px solid var(--line);
+  background: var(--mantle);
+  min-height: 36px;
+}
+.tab-nav {
+  display: flex;
+  align-items: stretch;
+  flex: none;
+  border-right: 1px solid var(--line);
+}
+.tab-nav-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  transition: var(--tr);
+}
+.tab-nav-btn:hover:not(:disabled) {
+  background: var(--surface);
+  color: var(--text);
+}
+.tab-nav-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
 .note-tab-bar {
   display: flex;
   align-items: stretch;
   gap: 0;
-  flex: none;
+  flex: 1;
+  min-width: 0;
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  border-bottom: 1px solid var(--line);
   background: var(--mantle);
   min-height: 36px;
 }

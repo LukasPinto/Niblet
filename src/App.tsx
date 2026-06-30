@@ -23,22 +23,31 @@ import { useTabsStore } from "./stores/tabsStore";
 import { openDailyNote } from "./lib/dailyNotes";
 import { initWorkspacePersistence } from "./stores/workspaceStore";
 import LinkHoverPreview from "./components/Editor/LinkHoverPreview";
+import Welcome from "./components/Welcome/Welcome";
 
-function Welcome() {
-  const openVault = useVaultStore((s) => s.openVault);
+function CloneBanner() {
+  const cloneProgress = useVaultStore((s) => s.cloneProgress);
+  if (!cloneProgress) return null;
+
+  if (!cloneProgress.active) {
+    return (
+      <div className="clone-banner clone-banner--error">
+        <span>Error al descargar el vault: {cloneProgress.error}</span>
+      </div>
+    );
+  }
+
+  const { done, total } = cloneProgress;
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+
   return (
-    <div className="center-state">
-      <div className="cs-emoji">📓</div>
-      <h2>Bienvenido a Niblet</h2>
-      <p className="muted" style={{ maxWidth: 420 }}>
-        Elige una carpeta como tu Vault. Tus notas se guardan como archivos
-        <code>.md</code> y la configuración viaja dentro del propio Vault
-        (<code>.niblet/config.json</code>), así que puedes sincronizarla con
-        OneDrive entre dispositivos.
-      </p>
-      <button className="btn primary" onClick={() => openVault()}>
-        Abrir carpeta del Vault…
-      </button>
+    <div className="clone-banner">
+      <div className="clone-banner__bar" style={{ width: `${pct}%` }} />
+      <span className="clone-banner__text">
+        {total === 0
+          ? "Conectando con OneDrive…"
+          : `Descargando vault remoto… ${done} / ${total} archivos`}
+      </span>
     </div>
   );
 }
@@ -62,6 +71,13 @@ export default function App() {
   useEffect(() => {
     applyToDom();
   }, [applyToDom]);
+
+  // Marcar macOS para ajustar espacio de semáforos en el topbar.
+  useEffect(() => {
+    if (navigator.userAgent.includes("Mac")) {
+      document.documentElement.classList.add("macos");
+    }
+  }, []);
 
   // Reabrir automáticamente el último vault usado (persistido en localStorage).
   useEffect(() => {
@@ -179,6 +195,7 @@ export default function App() {
       <main className="main">
         <TopBar />
         {tabCount > 0 && view === "note" && <NoteTabBar />}
+        <CloneBanner />
         <div className="canvas">
           {view === "note" && (
             <>

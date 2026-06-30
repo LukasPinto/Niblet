@@ -11,6 +11,7 @@ import {
   resetWorkspaceSession,
 } from "./workspaceStore";
 import { CONFIG_REL, VAULT_META_DIR } from "../lib/vaultPaths";
+import { setTitlebarTheme } from "../lib/tauri";
 
 export type NoteEditorMode = "edit" | "blocks" | "preview";
 export type TasksMode = "list" | "kanban";
@@ -81,19 +82,61 @@ export const DEFAULT_CONFIG: NibletConfig = {
 };
 
 const VAULT_KEY = "niblet-vault-path";
+const RECENTS_KEY = "niblet-recent-vaults";
+const MAX_RECENTS = 8;
+
+export interface RecentVault {
+  path: string;
+  name: string;
+}
+
+function loadRecents(): RecentVault[] {
+  try {
+    const raw = localStorage.getItem(RECENTS_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw) as RecentVault[];
+    if (!Array.isArray(arr)) return [];
+    return arr.filter(
+      (r): r is RecentVault =>
+        !!r && typeof r.path === "string" && typeof r.name === "string",
+    );
+  } catch {
+    return [];
+  }
+}
+
+function saveRecents(list: RecentVault[]) {
+  try {
+    localStorage.setItem(RECENTS_KEY, JSON.stringify(list));
+  } catch {
+    /* localStorage puede no estar disponible */
+  }
+}
+
+export interface CloneProgress {
+  active: boolean;
+  done: number;
+  total: number;
+  error: string | null;
+}
 
 interface VaultState {
   vaultPath: string | null;
   config: NibletConfig;
   ready: boolean;
+  cloneProgress: CloneProgress | null;
+  recentVaults: RecentVault[];
   configPath: () => string | null;
   applyToDom: () => void;
   openVault: () => Promise<boolean>;
   setVault: (path: string) => Promise<void>;
+  openRecentVault: (path: string) => Promise<boolean>;
+  removeRecent: (path: string) => void;
   closeVault: () => void;
   initVault: () => Promise<boolean>;
   updateConfig: (patch: Partial<NibletConfig>) => Promise<void>;
   persistConfig: () => Promise<void>;
+  setCloneProgress: (p: CloneProgress | null) => void;
 }
 
 function lastSegment(p: string): string {
@@ -104,6 +147,9 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   vaultPath: null,
   config: DEFAULT_CONFIG,
   ready: false,
+  cloneProgress: null,
+  recentVaults: loadRecents(),
+  setCloneProgress: (p) => set({ cloneProgress: p }),
 
   configPath: () => {
     const v = get().vaultPath;
@@ -114,6 +160,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     const { theme, accent } = get().config;
     document.documentElement.dataset.theme = theme;
     document.documentElement.dataset.accent = accent;
+    void setTitlebarTheme(theme === "dark");
   },
 
   openVault: async () => {
@@ -121,6 +168,26 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     if (typeof selected !== "string") return false;
     await get().setVault(selected);
     return true;
+  },
+
+  openRecentVault: async (path) => {
+    path = path.replace(/\\/g, "/");
+    if (path === get().vaultPath) return true;
+    try {
+      // Verificar que el vault sigue existiendo (listNotes falla si no).
+      await listNotes(path);
+    } catch {
+      get().removeRecent(path);
+      return false;
+    }
+    await get().setVault(path);
+    return true;
+  },
+
+  removeRecent: (path) => {
+    const recents = get().recentVaults.filter((r) => r.path !== path);
+    saveRecents(recents);
+    set({ recentVaults: recents });
   },
 
   setVault: async (path) => {
@@ -161,6 +228,13 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     } catch {
       /* localStorage puede no estar disponible */
     }
+    // Añadir/promover en la lista de vaults recientes (más reciente primero).
+    const recents = [
+      { path, name: lastSegment(path) },
+      ...get().recentVaults.filter((r) => r.path !== path),
+    ].slice(0, MAX_RECENTS);
+    saveRecents(recents);
+    set({ recentVaults: recents });
     get().applyToDom();
     // Persistir (crea .niblet/config.json si no existía) y arrancar watcher.
     await get().persistConfig();

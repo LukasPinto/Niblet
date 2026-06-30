@@ -3,6 +3,7 @@
 # Requisito: secret ONEDRIVE_CLIENT_ID en Settings › Secrets › Actions.
 #
 # Disparadores:
+#   - Push a `main` → compila y sube artefactos (sin GitHub Release)
 #   - Manual: Actions › Build release › Run workflow
 #   - Release: push de un tag v* (p. ej. v0.1.0) → artefactos + GitHub Release (draft)
 name: Build release
@@ -10,6 +11,8 @@ name: Build release
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     tags:
       - "v*"
 
