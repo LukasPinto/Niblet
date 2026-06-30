@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="mocha" data-accent="mauve">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Niblet — Notas</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- ===================== SIDEBAR ===================== -->
+    <aside class="sidebar">
+      <div class="vault">
+        <div class="vault-badge">L</div>
+        <div class="vault-meta">
+          <span class="vault-name">LukasVault</span>
+          <span class="vault-sub">Sincronizado · OneDrive</span>
+        </div>
+        <button class="icon-btn" title="Cambiar vault" data-act="noop">
+          <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+      </div>
+
+      <div class="search" data-act="palette">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <span>Buscar o saltar a…</span>
+        <kbd>Ctrl K</kbd>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-item active" data-view="note"><span class="ni-ico">📝</span> Nota de hoy</button>
+        <button class="nav-item" data-view="tasks"><span class="ni-ico">✅</span> Mis tareas <span class="pill-count">7</span></button>
+        <button class="nav-item" data-view="base"><span class="ni-ico">🗂️</span> Diario (Base)</button>
+
+        <div class="nav-section">Carpetas</div>
+        <button class="nav-item folder" data-view="note"><span class="ni-ico">🗓️</span> Diario</button>
+        <button class="nav-item folder" data-view="base"><span class="ni-ico">💻</span> Hacking</button>
+        <button class="nav-item folder" data-view="base"><span class="ni-ico">🎓</span> Universidad</button>
+        <button class="nav-item folder" data-view="base"><span class="ni-ico">🛠️</span> Práctica</button>
+        <button class="nav-item folder" data-view="base"><span class="ni-ico">🎸</span> Guitarra</button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <button class="nav-item" data-view="settings"><span class="ni-ico">⚙️</span> Ajustes</button>
+        <div class="sync-chip" title="Última sincronización hace 2 min">
+          <span class="dot"></span> Sincronizado
+        </div>
+      </div>
+    </aside>
+
+    <!-- ===================== MAIN ===================== -->
+    <main class="main">
+      <header class="topbar">
+        <div class="crumbs">
+          <span>Diario</span><span class="sep">/</span><span class="cur" id="crumb-cur">Nota de hoy</span>
+        </div>
+        <div class="top-actions">
+          <div class="seg">
+            <button class="seg-btn active" data-view="note" title="Editor">✎</button>
+            <button class="seg-btn" data-view="tasks" title="Tareas">☑</button>
+            <button class="seg-btn" data-view="base" title="Base de datos">▦</button>
+          </div>
+          <button class="icon-btn" data-act="theme" title="Cambiar tema">
+            <svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>
+          </button>
+          <div class="accent-dots" title="Color de acento">
+            <button class="ad" style="--c:#cba6f7" data-accent="mauve"></button>
+            <button class="ad" style="--c:#89b4fa" data-accent="blue"></button>
+            <button class="ad" style="--c:#a6e3a1" data-accent="green"></button>
+            <button class="ad" style="--c:#f38ba8" data-accent="red"></button>
+          </div>
+        </div>
+      </header>
+
+      <div class="canvas">
+        <!-- ----- VIEW: NOTE ----- -->
+        <section class="view view-note active" data-view-panel="note">
+          <article class="doc">
+            <div class="doc-icon">🗓️</div>
+            <h1 class="doc-title" contenteditable="true" spellcheck="false">Nota de hoy</h1>
+            <div class="props">
+              <div class="prop"><span class="prop-k">📅 Fecha</span><span class="prop-v">28 jun 2026</span></div>
+              <div class="prop"><span class="prop-k">🏷️ Tags</span><span class="prop-v tags"><em class="tag">#diario</em><em class="tag">#hacking</em></span></div>
+              <div class="prop"><span class="prop-k">😀 Ánimo</span><span class="prop-v">Enfocado</span></div>
+            </div>
+
+            <div class="doc-body">
+              <p>Hoy avancé con la máquina <strong>de HTB</strong> y dejé pendientes para revisar mañana.</p>
+
+              <h2>Pendientes</h2>
+              <ul class="md-tasks">
+                <li class="md-task"><span class="cb"></span><span class="tx">Terminar writeup de <code>Lame</code> <em class="t-pill due-soon">📅 hoy</em><em class="t-pill prio-high">⏫</em></span></li>
+                <li class="md-task"><span class="cb"></span><span class="tx">Repasar enumeración SMB <em class="t-pill">⏳ mañana</em></span></li>
+                <li class="md-task done"><span class="cb"></span><span class="tx">Montar laboratorio en VirtualBox</span></li>
+                <li class="md-task"><span class="cb"></span><span class="tx">Entregar informe de Universidad <em class="t-pill due-late">📅 atrasada</em></span></li>
+              </ul>
+
+              <h2>Notas</h2>
+              <blockquote>El escaneo con <code>nmap -sC -sV</code> reveló un FTP anónimo con vsftpd 2.3.4.</blockquote>
+              <p>Enlace a <a href="#" class="wikilink">[[Enumeración FTP]]</a> y <a href="#" class="wikilink">[[vsftpd backdoor]]</a>.</p>
+            </div>
+          </article>
+
+          <aside class="doc-side">
+            <div class="side-card">
+              <div class="side-head">Tareas de esta nota</div>
+              <div class="mini-progress"><div class="bar" style="--p:25%"></div><span>1/4</span></div>
+              <ul class="side-tasks">
+                <li><span class="cb sm"></span> Terminar writeup de Lame</li>
+                <li><span class="cb sm"></span> Repasar enumeración SMB</li>
+                <li class="done"><span class="cb sm"></span> Montar laboratorio</li>
+                <li><span class="cb sm"></span> Entregar informe</li>
+              </ul>
+            </div>
+            <div class="side-card">
+              <div class="side-head">Enlaces</div>
+              <a class="backlink" href="#">↩ Semana 26 · resumen</a>
+              <a class="backlink" href="#">↩ HTB · Lame</a>
+            </div>
+          </aside>
+        </section>
+
+        <!-- ----- VIEW: TASKS ----- -->
+        <section class="view view-tasks" data-view-panel="tasks">
+          <div class="tasks-head">
+            <h1>Mis tareas</h1>
+            <p class="muted">Detectadas automáticamente desde todas tus notas · igual que Capacities</p>
+          </div>
+
+          <div class="task-group">
+            <div class="tg-head"><span class="tg-dot late"></span> Atrasadas <span class="tg-n">1</span></div>
+            <ul class="task-list">
+              <li class="task"><span class="cb"></span><div class="t-main"><span>Entregar informe de Universidad</span><span class="t-from">🎓 Universidad / Informe</span></div><span class="t-pill due-late">📅 27 jun</span></li>
+            </ul>
+          </div>
+
+          <div class="task-group">
+            <div class="tg-head"><span class="tg-dot today"></span> Hoy <span class="tg-n">2</span></div>
+            <ul class="task-list">
+              <li class="task"><span class="cb"></span><div class="t-main"><span>Terminar writeup de Lame</span><span class="t-from">🗓️ Diario / Nota de hoy</span></div><span class="t-pill prio-high">⏫</span><span class="t-pill due-soon">📅 hoy</span></li>
+              <li class="task"><span class="cb"></span><div class="t-main"><span>Llamar al ayudante de cátedra</span><span class="t-from">🎓 Universidad / Horario Ayudantía</span></div><span class="t-pill due-soon">📅 hoy</span></li>
+            </ul>
+          </div>
+
+          <div class="task-group">
+            <div class="tg-head"><span class="tg-dot soon"></span> Próximas <span class="tg-n">2</span></div>
+            <ul class="task-list">
+              <li class="task"><span class="cb"></span><div class="t-main"><span>Repasar enumeración SMB</span><span class="t-from">🗓️ Diario / Nota de hoy</span></div><span class="t-pill">⏳ mañana</span></li>
+              <li class="task"><span class="cb"></span><div class="t-main"><span>Practicar escala pentatónica</span><span class="t-from">🎸 Guitarra / Rutina</span></div><span class="t-pill">📅 30 jun</span></li>
+            </ul>
+          </div>
+
+          <div class="task-group">
+            <div class="tg-head"><span class="tg-dot none"></span> Sin fecha <span class="tg-n">2</span></div>
+            <ul class="task-list">
+              <li class="task"><span class="cb"></span><div class="t-main"><span>Ordenar capturas de pantalla</span><span class="t-from">💻 Hacking / Recursos</span></div></li>
+              <li class="task done"><span class="cb"></span><div class="t-main"><span>Montar laboratorio en VirtualBox</span><span class="t-from">🗓️ Diario / Nota de hoy</span></div></li>
+            </ul>
+          </div>
+        </section>
+
+        <!-- ----- VIEW: BASE ----- -->
+        <section class="view view-base" data-view-panel="base">
+          <div class="tasks-head">
+            <h1>Diario</h1>
+            <p class="muted">Vista de base de datos · cada nota es una fila (frontmatter)</p>
+          </div>
+          <div class="table-wrap">
+            <table class="db">
+              <thead>
+                <tr><th>Nota</th><th>📅 Fecha</th><th>🏷️ Tags</th><th>😀 Ánimo</th><th>☑ Tareas</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><span class="row-ico">🗓️</span> Nota de hoy</td><td>28 jun 2026</td><td><em class="tag">#diario</em><em class="tag">#hacking</em></td><td>Enfocado</td><td><span class="prog-mini"><i style="--p:25%"></i></span> 1/4</td></tr>
+                <tr><td><span class="row-ico">🗓️</span> 27 junio</td><td>27 jun 2026</td><td><em class="tag">#uni</em></td><td>Cansado</td><td><span class="prog-mini"><i style="--p:80%"></i></span> 4/5</td></tr>
+                <tr><td><span class="row-ico">🗓️</span> 26 junio</td><td>26 jun 2026</td><td><em class="tag">#hacking</em></td><td>Motivado</td><td><span class="prog-mini"><i style="--p:100%"></i></span> 3/3</td></tr>
+                <tr><td><span class="row-ico">🗓️</span> 25 junio</td><td>25 jun 2026</td><td><em class="tag">#diario</em></td><td>Neutral</td><td><span class="prog-mini"><i style="--p:50%"></i></span> 2/4</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ----- VIEW: SETTINGS ----- -->
+        <section class="view view-settings" data-view-panel="settings">
+          <div class="tasks-head">
+            <h1>Ajustes</h1>
+            <p class="muted">Se guardan dentro del Vault (<code>.niblet/config.json</code>) y viajan con OneDrive a otros dispositivos</p>
+          </div>
+
+          <div class="settings-grid">
+            <div class="set-card">
+              <div class="set-title">🔄 Sincronización</div>
+              <div class="set-row"><span>Carpeta del Vault</span><code>C:\Users\lukas\OneDrive\LukasVault</code></div>
+              <div class="set-row"><span>Servicio</span><span class="badge ok">OneDrive (carpeta)</span></div>
+              <div class="set-row"><span>Incluir ajustes/config</span><label class="switch on"><i></i></label></div>
+              <div class="set-row"><span>Resolución de conflictos</span><span class="badge">Diff lado a lado</span></div>
+            </div>
+
+            <div class="set-card">
+              <div class="set-title">🎨 Apariencia</div>
+              <div class="set-row"><span>Tema</span><span class="badge" id="theme-name">Mocha (oscuro)</span></div>
+              <div class="set-row"><span>Color de acento</span><div class="accent-dots inline">
+                <button class="ad" style="--c:#cba6f7" data-accent="mauve"></button>
+                <button class="ad" style="--c:#89b4fa" data-accent="blue"></button>
+                <button class="ad" style="--c:#a6e3a1" data-accent="green"></button>
+                <button class="ad" style="--c:#f38ba8" data-accent="red"></button>
+              </div></div>
+              <div class="set-row"><span>Fuente del editor</span><span class="badge">Inter</span></div>
+            </div>
+
+            <div class="set-card">
+              <div class="set-title">✅ Tareas</div>
+              <div class="set-row"><span>Detectar checkboxes inline</span><label class="switch on"><i></i></label></div>
+              <div class="set-row"><span>Carpetas a escanear</span><span class="badge">Todo el Vault</span></div>
+              <div class="set-row"><span>Sintaxis de fecha</span><code>📅 YYYY-MM-DD</code></div>
+            </div>
+          </div>
+
+          <div class="conflict-demo">
+            <div class="set-title">⚠️ Ejemplo de resolución de conflicto</div>
+            <p class="muted">Si editas la misma nota en dos PCs sin conexión, al sincronizar verías esto:</p>
+            <div class="diff">
+              <div class="diff-col">
+                <div class="diff-head">Este dispositivo</div>
+                <pre>- [ ] Terminar writeup de Lame 📅 hoy
+- [x] Montar laboratorio
+<span class="add">- [ ] Subir notas a OneDrive</span></pre>
+              </div>
+              <div class="diff-col">
+                <div class="diff-head">OneDrive (otro PC)</div>
+                <pre>- [ ] Terminar writeup de Lame 📅 hoy
+- [x] Montar laboratorio
+<span class="rem">- [ ] Revisar puerto 21</span></pre>
+              </div>
+            </div>
+            <div class="diff-actions">
+              <button class="btn ghost">Quedarme con el mío</button>
+              <button class="btn ghost">Usar el de OneDrive</button>
+              <button class="btn primary">Fusionar ambos</button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- ===================== COMMAND PALETTE ===================== -->
+  <div class="palette-overlay" id="palette">
+    <div class="palette">
+      <div class="palette-input">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input type="text" placeholder="Buscar notas, tareas, comandos…" autofocus />
+        <kbd>Esc</kbd>
+      </div>
+      <div class="palette-list">
+        <div class="pl-section">Saltar a</div>
+        <div class="pl-item" data-view="note"><span>📝</span> Nota de hoy</div>
+        <div class="pl-item" data-view="tasks"><span>✅</span> Mis tareas</div>
+        <div class="pl-item" data-view="base"><span>🗂️</span> Diario (Base)</div>
+        <div class="pl-section">Comandos</div>
+        <div class="pl-item" data-act="theme"><span>🌗</span> Cambiar tema claro/oscuro</div>
+        <div class="pl-item" data-view="settings"><span>⚙️</span> Abrir ajustes</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>

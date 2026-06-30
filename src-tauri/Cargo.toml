@@ -1,0 +1,37 @@
+[package]
+name = "niblet"
+version = "0.1.0"
+description = "Niblet — app de notas Markdown con tareas, base de datos y sync"
+authors = ["Lukas"]
+license = "GPL-3.0-or-later"
+edition = "2021"
+
+# Ver https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+# El nombre `_lib` evita un choque de nombres con el binario en Windows.
+name = "niblet_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-clipboard-manager = "2"
+png = "0.17"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+notify = "6"
+sha2 = "0.10"
+walkdir = "2"
+reqwest = { version = "0.12", features = ["json"] }
+base64 = "0.22"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

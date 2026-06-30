@@ -1,0 +1,89 @@
+/* =========================================================
+   Niblet — tokens de diseño
+   Paletas neutras estilo Notion (oscuro / claro) + acentos
+   ========================================================= */
+:root {
+  --r: 6px;
+  --r-sm: 4px;
+  --tr: 160ms cubic-bezier(0.2, 0.6, 0.2, 1);
+  --font: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Code", ui-monospace, "Consolas", monospace;
+}
+
+/* ---------- Tema oscuro ---------- */
+[data-theme="dark"] {
+  --base: #191919;
+  --mantle: #111111;
+  --crust: #0d0d0d;
+  --surface: #222222;
+  --surface2: #2e2e2e;
+  --overlay: #525252;
+  --text: #e8e8e8;
+  --subtext: #b0b0b0;
+  --muted: #717171;
+  --line: #2e2e2e;
+  --red: #e05c5c;
+  --peach: #d4845a;
+  --green: #57a86a;
+  --blue: #4a9eff;
+  --shadow: 0 4px 20px rgba(0, 0, 0, 0.55);
+}
+
+/* ---------- Tema claro ---------- */
+[data-theme="light"] {
+  --base: #ffffff;
+  --mantle: #f7f7f5;
+  --crust: #f0f0ec;
+  --surface: #ffffff;
+  --surface2: #ebebea;
+  --overlay: #9b9b9b;
+  --text: #191919;
+  --subtext: #4a4a4a;
+  --muted: #9b9b9b;
+  --line: #e9e9e7;
+  --red: #c0392b;
+  --peach: #c0692b;
+  --green: #2e7d44;
+  --blue: #2383e2;
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.10);
+}
+
+/* ---------- Acentos ---------- */
+[data-accent="blue"]  { --accent: #2383e2; --accent-ink: #ffffff; }
+[data-accent="teal"]  { --accent: #0f7b6c; --accent-ink: #ffffff; }
+[data-accent="amber"] { --accent: #c47b00; --accent-ink: #ffffff; }
+[data-accent="rose"]  { --accent: #c0392b; --accent-ink: #ffffff; }
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #root { height: 100%; }
+body {
+  font-family: var(--font);
+  background: var(--crust);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  font-size: 14.5px;
+  line-height: 1.55;
+  overflow: hidden;
+}
+svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* scrollbars */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb {
+  background: var(--surface2);
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--overlay);
+  background-clip: padding-box;
+}
