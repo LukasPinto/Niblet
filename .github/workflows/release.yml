@@ -1,11 +1,18 @@
-# Compila instaladores de Niblet para Windows y macOS.
+# Compila Niblet y publica un GitHub Release con instaladores listos para descargar.
 #
 # Requisito: secret ONEDRIVE_CLIENT_ID en Settings › Secrets › Actions.
 #
 # Disparadores:
 #   - Push a `main` → compila y sube artefactos (sin GitHub Release)
+#   - Push de tag `v*` (p. ej. v0.1.0) → compila + GitHub Release publicado
 #   - Manual: Actions › Build release › Run workflow
-#   - Release: push de un tag v* (p. ej. v0.1.0) → artefactos + GitHub Release (draft)
+#
+# Assets del release (solo archivos finales, sin carpetas):
+#   - niblet-{version}-windows-x64.exe   (instalador NSIS)
+#   - niblet-{version}-windows-x64.zip   (portable)
+#   - Niblet-{version}-macOS-arm64.dmg
+#   - Niblet-{version}-macOS-x64.dmg
+#   - SHA256SUMS
 name: Build release
 
 on:
@@ -23,11 +30,38 @@ concurrency:
 permissions:
   contents: write
 
+env:
+  VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+
 jobs:
   validate:
     name: Validate secrets
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/checkout@v4
+
+      - name: Verify release version matches tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          pkg=$(node -p "require('./package.json').version")
+          cargo=$(grep -E '^version\s*=' src-tauri/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          tauri=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          for label in package.json Cargo.toml tauri.conf.json; do
+            val="$tag"
+            [ "$label" = package.json ] && val="$pkg"
+            [ "$label" = Cargo.toml ] && val="$cargo"
+            [ "$label" = tauri.conf.json ] && val="$tauri"
+            if [ "$val" != "$tag" ]; then
+              echo "::error title=Version mismatch::$label tiene $val pero el tag es v$tag"
+              exit 1
+            fi
+          done
+          echo "Versión v$tag alineada en package.json, Cargo.toml y tauri.conf.json."
+
       - name: Verify ONEDRIVE_CLIENT_ID
         env:
           ONEDRIVE_CLIENT_ID: ${{ secrets.ONEDRIVE_CLIENT_ID }}
@@ -44,7 +78,6 @@ jobs:
             exit 1
           fi
 
-          # Application (client) ID de Azure = UUID
           if ! echo "${ONEDRIVE_CLIENT_ID}" | grep -qE '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'; then
             echo "::error title=Invalid format::ONEDRIVE_CLIENT_ID debe ser un UUID (Application ID de Azure)."
             exit 1
@@ -61,23 +94,36 @@ jobs:
       matrix:
         include:
           - platform: windows-latest
-            args: ""
             artifact: windows
-            bundle_glob: src-tauri/target/release/bundle/**/*
+            stage_target: windows
+            tauri_args: "--bundles nsis"
           - platform: macos-latest
-            args: "--target aarch64-apple-darwin"
             artifact: macos-arm64
-            bundle_glob: src-tauri/target/aarch64-apple-darwin/release/bundle/**/*
+            stage_target: macos-arm64
+            tauri_args: "--target aarch64-apple-darwin --bundles dmg"
           - platform: macos-latest
-            args: "--target x86_64-apple-darwin"
             artifact: macos-x64
-            bundle_glob: src-tauri/target/x86_64-apple-darwin/release/bundle/**/*
+            stage_target: macos-x64
+            tauri_args: "--target x86_64-apple-darwin --bundles dmg"
 
     runs-on: ${{ matrix.platform }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${VERSION}" ]; then
+            ver="${VERSION#v}"
+          else
+            ver=$(node -p "require('./package.json').version")
+          fi
+          echo "version=${ver}" >> "$GITHUB_OUTPUT"
+          echo "Building version ${ver}"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -102,13 +148,24 @@ jobs:
         env:
           CI: true
           ONEDRIVE_CLIENT_ID: ${{ secrets.ONEDRIVE_CLIENT_ID }}
-        run: npm run tauri build -- ${{ matrix.args }}
+        run: npm run tauri build -- ${{ matrix.tauri_args }}
 
-      - name: Upload installers
+      - name: Package Windows portable zip
+        if: matrix.platform == 'windows-latest'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: node scripts/package-windows-portable.mjs
+
+      - name: Stage release assets
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: node scripts/stage-release-assets.mjs ${{ matrix.stage_target }}
+
+      - name: Upload release assets
         uses: actions/upload-artifact@v4
         with:
           name: niblet-${{ matrix.artifact }}
-          path: ${{ matrix.bundle_glob }}
+          path: release-assets/*
           if-no-files-found: error
           retention-days: 30
 
@@ -122,15 +179,34 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          path: release-assets
           merge-multiple: true
 
-      - name: Create GitHub Release (draft)
+      - name: Generate SHA256 checksums
+        run: |
+          set -euo pipefail
+          cd release-assets
+          shopt -s nullglob
+          files=(*.exe *.zip *.dmg)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::No hay binarios para publicar."
+            exit 1
+          fi
+          sha256sum "${files[@]}" > SHA256SUMS
+          echo "Checksums:"
+          cat SHA256SUMS
+
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: Niblet ${{ github.ref_name }}
-          draft: true
+          draft: false
+          prerelease: false
           generate_release_notes: true
-          fail_on_unmatched_files: true
-          files: artifacts/**/*
+          fail_on_unmatched_files: false
+          files: |
+            release-assets/*.exe
+            release-assets/*.zip
+            release-assets/*.dmg
+            release-assets/SHA256SUMS

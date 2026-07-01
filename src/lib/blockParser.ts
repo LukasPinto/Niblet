@@ -2,6 +2,8 @@
 // Cada bloque representa una unidad editable (párrafo, encabezado, tarea…).
 // El round-trip markdownToBlocks → blocksToMarkdown preserva el contenido.
 
+import { normalizeCodeLanguageId } from "./codeLanguages";
+
 export type BlockType =
   | "paragraph"
   | "heading1"
@@ -38,8 +40,9 @@ export interface Block {
   indent?: number;
 }
 
-/** Coincide con una línea que es únicamente una imagen Markdown `![alt](src)`. */
-const IMAGE_LINE_RE = /^!\[([^\]]*)\]\(([^)]+)\)\s*$/;
+/** Coincide con una línea que es únicamente una imagen Markdown `![alt](src)`,
+ *  admitiendo indentación (imágenes dentro de listas). */
+const IMAGE_LINE_RE = /^(\s*)!\[([^\]]*)\]\(([^)]+)\)\s*$/;
 
 export const MAX_BLOCK_INDENT = 6;
 export const INDENT_SPACES_PER_LEVEL = 2;
@@ -108,7 +111,14 @@ function isTableRowLine(line: string): boolean {
 }
 
 function isTableSeparatorLine(line: string): boolean {
-  return /^\|?\s*(:?-+:?\s*\|)+\s*:?-+:?\s*\|?\s*$/.test(line.trim());
+  let t = line.trim();
+  if (!t.includes("-")) return false;
+  if (t.startsWith("|")) t = t.slice(1);
+  if (t.endsWith("|")) t = t.slice(0, -1);
+  const cells = t.split("|");
+  if (cells.length === 0) return false;
+  // Cada celda del separador: guiones con colones de alineación opcionales.
+  return cells.every((c) => /^\s*:?-+:?\s*$/.test(c));
 }
 
 function parseTableRow(line: string): string[] {
@@ -203,7 +213,7 @@ export function markdownToBlocks(md: string): Block[] {
         id: newBlockId(),
         type: "code",
         text: inner.join("\n"),
-        language: lang || undefined,
+        language: lang ? normalizeCodeLanguageId(lang) || undefined : undefined,
       });
       continue;
     }
@@ -236,7 +246,13 @@ export function markdownToBlocks(md: string): Block[] {
     let block: Block;
     const imageMatch = line.match(IMAGE_LINE_RE);
     if (imageMatch) {
-      block = { id: newBlockId(), type: "image", text: imageMatch[2], alt: imageMatch[1] };
+      block = {
+        id: newBlockId(),
+        type: "image",
+        text: imageMatch[3],
+        alt: imageMatch[2],
+        indent: leadingIndentLevel(imageMatch[1]) || undefined,
+      };
     } else if (/^#\s+/.test(line)) {
       block = { id: newBlockId(), type: "heading1", text: line.replace(/^#\s+/, "") };
     } else if (/^##\s+/.test(line)) {
@@ -290,7 +306,36 @@ export function markdownToBlocks(md: string): Block[] {
   return blocks;
 }
 
-export function blockToMarkdown(b: Block, index: number): string {
+/**
+ * Numeración local de las listas ordenadas: un contador por nivel de
+ * indentación que se reinicia al cambiar de lista (otra lista, o un bloque
+ * ajeno a listas). Es la única fuente de verdad, usada tanto para mostrar la
+ * numeración en el editor como para serializar el markdown, de modo que ambos
+ * coincidan.
+ */
+export function computeOrderedOrdinals(blocks: Block[]): Map<string, number> {
+  const map = new Map<string, number>();
+  const counters: Record<number, number> = {};
+  const clearDeeper = (lvl: number) => {
+    for (const k of Object.keys(counters)) if (+k > lvl) delete counters[+k];
+  };
+  for (const b of blocks) {
+    const lvl = b.indent ?? 0;
+    if (b.type === "numberedList") {
+      clearDeeper(lvl);
+      counters[lvl] = (counters[lvl] ?? 0) + 1;
+      map.set(b.id, counters[lvl]);
+    } else if (b.type === "bulletList" || b.type === "taskItem") {
+      clearDeeper(lvl);
+      delete counters[lvl];
+    } else if (b.type !== "image") {
+      for (const k of Object.keys(counters)) delete counters[+k];
+    }
+  }
+  return map;
+}
+
+export function blockToMarkdown(b: Block, ordinal = 1): string {
   const pad = indentPrefix(b.indent ?? 0);
   switch (b.type) {
     case "heading1":
@@ -302,14 +347,15 @@ export function blockToMarkdown(b: Block, index: number): string {
     case "bulletList":
       return `${pad}- ${b.text}`;
     case "numberedList":
-      return `${pad}${index + 1}. ${b.text}`;
+      return `${pad}${ordinal}. ${b.text}`;
     case "taskItem":
       return `${pad}- [${b.checked ? "x" : " "}] ${b.text}`;
     case "quote":
       return `> ${b.text}`;
     case "code": {
       const lang = b.language?.trim();
-      return lang ? `\`\`\`${lang}\n${b.text}\n\`\`\`` : "```\n" + b.text + "\n```";
+      const id = lang ? normalizeCodeLanguageId(lang) : "";
+      return id ? `\`\`\`${id}\n${b.text}\n\`\`\`` : "```\n" + b.text + "\n```";
     }
     case "table": {
       const data = b.table;
@@ -330,7 +376,7 @@ export function blockToMarkdown(b: Block, index: number): string {
       return lines.join("\n");
     }
     case "image":
-      return `![${b.alt ?? ""}](${b.text})`;
+      return `${pad}![${b.alt ?? ""}](${b.text})`;
     case "divider":
       return "---";
     default:
@@ -339,5 +385,6 @@ export function blockToMarkdown(b: Block, index: number): string {
 }
 
 export function blocksToMarkdown(blocks: Block[]): string {
-  return blocks.map((b, i) => blockToMarkdown(b, i)).join("\n");
+  const ordinals = computeOrderedOrdinals(blocks);
+  return blocks.map((b) => blockToMarkdown(b, ordinals.get(b.id))).join("\n");
 }

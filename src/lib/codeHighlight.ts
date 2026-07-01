@@ -58,14 +58,11 @@ export function resolveHighlightLanguage(language: string | undefined): string |
 export function highlightCode(code: string, language?: string): string {
   if (!code) return "";
   const lang = resolveHighlightLanguage(language);
+  // "Texto plano": solo escapar HTML. highlightAuto tokeniza y desalinea el
+  // cursor respecto a la capa contentEditable/textarea transparente encima.
+  if (!lang) return escapeHtml(code);
   try {
-    if (lang) {
-      return hastToHtml(lowlight.highlight(lang, code));
-    }
-    const auto = lowlight.highlightAuto(code);
-    if (auto.data?.language) {
-      return hastToHtml(auto);
-    }
+    return hastToHtml(lowlight.highlight(lang, code));
   } catch {
     /* lenguaje inválido o código parcial mientras se escribe */
   }

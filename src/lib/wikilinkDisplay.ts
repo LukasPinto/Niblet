@@ -10,7 +10,34 @@ export function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/** Convierte `[[nota]]` completos en chips inline para contentEditable. */
+// Formato inline que se renderiza en bloques no enfocados: código y negrita.
+// Cada chip guarda su markdown original en `data-md` para serializar sin
+// pérdidas. Se omite deliberadamente la itálica (`*` / `_`): estas notas están
+// llenas de `snake_case`, globs y comandos que darían falsos positivos.
+const INLINE_FMT_RE = /(`[^`\n]+?`)|(\*\*[^\n]+?\*\*)/g;
+
+/** Escapa y decora el formato inline (código, negrita) de un fragmento de texto. */
+function decorateInlineFormatting(seg: string): string {
+  let out = "";
+  let last = 0;
+  const re = new RegExp(INLINE_FMT_RE.source, "g");
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(seg)) !== null) {
+    out += escapeHtml(seg.slice(last, m.index));
+    if (m[1] !== undefined) {
+      const inner = m[1].slice(1, -1);
+      out += `<code class="be-inline-code" contenteditable="false" data-md="${escapeHtml(m[1])}">${escapeHtml(inner)}</code>`;
+    } else {
+      const inner = m[2].slice(2, -2);
+      out += `<strong class="be-inline-bold" contenteditable="false" data-md="${escapeHtml(m[2])}">${escapeHtml(inner)}</strong>`;
+    }
+    last = m.index + m[0].length;
+  }
+  out += escapeHtml(seg.slice(last));
+  return out;
+}
+
+/** Convierte `[[nota]]` y formato inline en chips para contentEditable. */
 export function decorateWikilinksInPlainText(
   text: string,
   resolveRel?: (title: string) => string | null,
@@ -20,7 +47,7 @@ export function decorateWikilinksInPlainText(
   const re = new RegExp(WIKILINK_COMPLETE_RE.source, "g");
   let match: RegExpExecArray | null;
   while ((match = re.exec(text)) !== null) {
-    result += escapeHtml(text.slice(last, match.index));
+    result += decorateInlineFormatting(text.slice(last, match.index));
     const title = match[1].trim();
     const label = (match[2]?.trim() || title).trim();
     const resolved = resolveRel?.(title) ?? null;
@@ -28,21 +55,30 @@ export function decorateWikilinksInPlainText(
     result += `<span class="block-wikilink" contenteditable="false" data-wiki="${escapeHtml(title)}"${relAttr}><span class="block-wikilink-ico" aria-hidden="true">↗</span><span class="block-wikilink-label">${escapeHtml(label)}</span></span>`;
     last = match.index + match[0].length;
   }
-  result += escapeHtml(text.slice(last));
+  result += decorateInlineFormatting(text.slice(last));
   return result.replace(/\n/g, "<br>");
 }
 
-/** Lee el texto plano de un bloque, incluyendo chips wikilink. */
-export function serializeEditableWithWikilinks(el: HTMLElement): string {
+/** `div`/`p` hijos directos que el navegador crea al pulsar Shift+Enter. */
+function isEditableLineElement(node: Node): node is HTMLElement {
+  return (
+    node instanceof HTMLElement &&
+    (node.tagName === "DIV" || node.tagName === "P") &&
+    !node.classList.contains("block-wikilink") &&
+    node.dataset.md === undefined
+  );
+}
+
+function serializeInlineNodes(nodes: Iterable<Node>): string {
   let out = "";
-  const walk = (node: Node) => {
+  for (const node of nodes) {
     if (node.nodeType === Node.TEXT_NODE) {
       out += node.textContent ?? "";
-      return;
+      continue;
     }
     if (node.nodeName === "BR") {
       out += "\n";
-      return;
+      continue;
     }
     if (node instanceof HTMLElement) {
       if (node.classList.contains("block-wikilink")) {
@@ -51,12 +87,114 @@ export function serializeEditableWithWikilinks(el: HTMLElement): string {
           node.querySelector(".block-wikilink-label")?.textContent ??
           "";
         out += `[[${wiki}]]`;
-        return;
+        continue;
       }
-      node.childNodes.forEach(walk);
+      if (node.dataset.md !== undefined) {
+        out += node.dataset.md;
+        continue;
+      }
+      out += serializeInlineNodes(node.childNodes);
     }
-  };
-  el.childNodes.forEach(walk);
+  }
+  return out;
+}
+
+/** Contenido de una línea `<div>` (sin el salto entre líneas del contenedor). */
+function serializeLineInner(el: HTMLElement): string {
+  const kids = [...el.childNodes];
+  if (kids.length === 0) return "";
+  // Línea vacía típica de Chrome: <div><br></div>
+  if (kids.length === 1 && kids[0].nodeName === "BR") return "";
+  return serializeInlineNodes(kids);
+}
+
+/** Un único nodo de texto: el DOM más simple y fiable para editar. */
+export function isPlainTextDom(el: HTMLElement): boolean {
+  return (
+    el.childNodes.length === 1 &&
+    el.firstChild?.nodeType === Node.TEXT_NODE
+  );
+}
+
+/** Solo nodos de texto (sin br/div/chips), posiblemente varios hermanos. */
+export function isTextNodesOnly(el: HTMLElement): boolean {
+  if (el.childNodes.length === 0) return false;
+  return [...el.childNodes].every((n) => n.nodeType === Node.TEXT_NODE);
+}
+
+/** ¿Hay que reescribir el DOM antes de leer/escribir? */
+export function editableDomNeedsFlatten(el: HTMLElement): boolean {
+  if (isPlainTextDom(el)) return false;
+  if (isTextNodesOnly(el)) return true;
+  if (el.querySelector(".block-wikilink, .be-inline-code, .be-inline-bold, br")) {
+    return true;
+  }
+  return [...el.childNodes].some(isEditableLineElement);
+}
+
+/**
+ * Chromium inserta un `<br>` final en contentEditable que no es texto real pero
+ * desplaza el cursor visualmente hacia la derecha/abajo. Lo eliminamos cuando
+ * hay contenido; en bloques vacíos se conserva para mantener altura y foco.
+ */
+export function stripPhantomTrailingBr(el: HTMLElement): void {
+  if ((el.textContent ?? "").length === 0) return;
+  const last = el.lastChild;
+  if (!last || last.nodeName !== "BR") return;
+
+  const sel = window.getSelection();
+  let caretWasAfterText = false;
+  if (sel?.rangeCount && el.contains(sel.getRangeAt(0).startContainer)) {
+    const range = sel.getRangeAt(0);
+    caretWasAfterText =
+      range.startContainer === last ||
+      (range.startContainer === el &&
+        range.startOffset === el.childNodes.length);
+  }
+
+  last.remove();
+
+  if (!caretWasAfterText || !sel?.rangeCount) return;
+  const textNode = [...el.childNodes]
+    .reverse()
+    .find((n) => n.nodeType === Node.TEXT_NODE);
+  if (!textNode) return;
+  const r = document.createRange();
+  r.setStart(textNode, textNode.textContent?.length ?? 0);
+  r.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(r);
+}
+
+/** Aplana el DOM a un único nodo de texto con `\n`. Devuelve el markdown del bloque. */
+export function flattenEditableDom(el: HTMLElement): string {
+  const text = serializeEditableWithWikilinks(el);
+  if (editableDomNeedsFlatten(el) || el.textContent !== text) {
+    el.textContent = text;
+  }
+  return text;
+}
+
+/** Lee el texto plano de un bloque, incluyendo chips wikilink. */
+export function serializeEditableWithWikilinks(el: HTMLElement): string {
+  const kids = [...el.childNodes];
+  if (kids.length === 0) return "";
+
+  const hasLineDivs = kids.some(isEditableLineElement);
+  if (!hasLineDivs) {
+    return serializeInlineNodes(kids);
+  }
+
+  let out = "";
+  for (let i = 0; i < kids.length; i++) {
+    const node = kids[i];
+    if (isEditableLineElement(node)) {
+      if (i > 0) out += "\n";
+      out += serializeLineInner(node);
+    } else {
+      out += serializeInlineNodes([node]);
+    }
+  }
   return out;
 }
 

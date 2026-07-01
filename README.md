@@ -39,7 +39,7 @@ Compilar instaladores locales:
 npm run tauri:build
 ```
 
-En Windows genera `.msi`/`.exe` (NSIS). En macOS genera `.app` y `.dmg`.
+En Windows genera `.exe` (NSIS) y un `.zip` portable. En macOS genera `.dmg`.
 
 ### OneDrive (Client ID)
 
@@ -57,23 +57,34 @@ guardarlo en Ajustes dentro de la app o exportarlo como variable de entorno.
 
 ## Instaladores (GitHub Actions)
 
-El workflow [`.github/workflows/release.yml`](.github/workflows/release.yml) compila:
+El workflow [`.github/workflows/release.yml`](.github/workflows/release.yml) compila y publica
+instaladores con nombres claros (como un release típico de software):
 
-| Plataforma | Artefactos |
-|------------|------------|
-| Windows | `.msi`, `.exe` (NSIS) |
-| macOS (Apple Silicon) | `.dmg`, `.app` |
-| macOS (Intel) | `.dmg`, `.app` |
+| Plataforma | Archivo |
+|------------|---------|
+| Windows (instalador) | `niblet-{version}-windows-x64.exe` |
+| Windows (portable) | `niblet-{version}-windows-x64.zip` |
+| macOS Apple Silicon | `Niblet-{version}-macOS-arm64.dmg` |
+| macOS Intel | `Niblet-{version}-macOS-x64.dmg` |
+
+También se adjunta `SHA256SUMS` con los hashes de verificación.
 
 **Disparadores:**
 
 | Evento | Qué hace |
 |--------|----------|
 | Push a `main` | Compila y sube artefactos (sin Release) |
-| Push de tag `v*` (p. ej. `v0.1.0`) | Compila + **GitHub Release** en borrador |
+| Push de tag `v*` (p. ej. `v0.1.0`) | Compila + **GitHub Release** publicado |
 | Manual | Actions › *Build release* › *Run workflow* |
 
-**Publicar versión:** `git tag v0.1.0 && git push origin v0.1.0`
+**Publicar versión:**
+
+```bash
+# Alineá la versión en package.json, src-tauri/Cargo.toml y tauri.conf.json
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+El release incluye solo los binarios finales (`.exe`, `.zip`, `.dmg`), no carpetas `.app` ni artefactos de build intermedios.
 
 **Secret obligatorio para CI:** en el repo, Settings › Secrets › Actions, crea
 `ONEDRIVE_CLIENT_ID` con tu Client ID de Azure. El workflow **falla al inicio** si
@@ -86,19 +97,18 @@ Los instaladores generados en GitHub Actions **no están firmados ni notarizados
 certificado Apple. macOS puede mostrar *«está dañado y no puede abrirse»* aunque el
 archivo esté bien; es Gatekeeper bloqueando apps no verificadas.
 
-1. Descarga el artefacto (`niblet-macos-arm64` o `niblet-macos-x64`) y descomprímelo.
-2. Arrastra `Niblet.app` (carpeta `macos/` dentro del artefacto) a **Aplicaciones**.
-3. En Terminal, quita la cuarentena de descarga:
+1. Descargá el `.dmg` del release (`Niblet-{version}-macOS-arm64.dmg` o `-x64.dmg`).
+2. Montá el disco y arrastrá **Niblet** a **Aplicaciones**.
+3. En Terminal, quitá la cuarentena de descarga:
 
    ```bash
    xattr -cr /Applications/Niblet.app
    ```
 
-4. Abre la app con **clic derecho → Abrir** (no doble clic) y confirma **Abrir**.
+4. Abrí la app con **clic derecho → Abrir** (no doble clic) y confirmá **Abrir**.
    Solo hace falta la primera vez.
 
-Si montaste el `.dmg` y falla, usa el `.app` del artefacto directamente; suele ser
-más fiable. Para distribución pública sin estos pasos haría falta Apple Developer
+Para distribución pública sin estos pasos haría falta Apple Developer
 Program y firmar/notarizar en CI.
 
 ## Estructura

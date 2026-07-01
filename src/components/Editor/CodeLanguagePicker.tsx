@@ -4,10 +4,18 @@ import {
   CODE_LANGUAGE_OPTIONS,
   codeLanguageLabel,
 } from "../../lib/codeLanguages";
+import {
+  closeAllCodeLangPickers,
+  registerCodeLangPicker,
+} from "../../lib/blockEditorMenus";
 
 interface Props {
   value: string;
   onChange: (language: string) => void;
+  /** Id del bloque de código (para cerrar otros selectores abiertos). */
+  blockId: string;
+  /** Cierra menús del BlockEditor (convertir, /, sugerencias…). */
+  onDismissBlockMenus?: () => void;
 }
 
 interface MenuPos {
@@ -40,7 +48,12 @@ function sameMenuPos(a: MenuPos | null, b: MenuPos): boolean {
   return !!a && a.left === b.left && a.top === b.top && a.width === b.width;
 }
 
-export default function CodeLanguagePicker({ value, onChange }: Props) {
+export default function CodeLanguagePicker({
+  value,
+  onChange,
+  blockId,
+  onDismissBlockMenus,
+}: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [menuPos, setMenuPos] = useState<MenuPos | null>(null);
@@ -94,12 +107,20 @@ export default function CodeLanguagePicker({ value, onChange }: Props) {
   }, [open, repositionMenu]);
 
   useEffect(() => {
+    return registerCodeLangPicker(blockId, () => {
+      setOpen(false);
+      setQuery("");
+    });
+  }, [blockId]);
+
+  useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => {
       const target = e.target as Node;
       if (
         !rootRef.current?.contains(target) &&
-        !menuRef.current?.contains(target)
+        !menuRef.current?.contains(target) &&
+        !(target as HTMLElement).closest?.(".block-turn-menu")
       ) {
         setOpen(false);
       }
@@ -186,6 +207,7 @@ export default function CodeLanguagePicker({ value, onChange }: Props) {
         ref={rootRef}
         onMouseDown={stopBubble}
         onClick={stopBubble}
+        onContextMenu={(e) => e.stopPropagation()}
       >
         <button
           ref={btnRef}
@@ -194,7 +216,16 @@ export default function CodeLanguagePicker({ value, onChange }: Props) {
           aria-expanded={open}
           aria-haspopup="listbox"
           onMouseDown={(e) => e.preventDefault()}
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => {
+            setOpen((v) => {
+              const next = !v;
+              if (next) {
+                closeAllCodeLangPickers(blockId);
+                onDismissBlockMenus?.();
+              }
+              return next;
+            });
+          }}
         >
           {codeLanguageLabel(value)}
           <span className="code-lang-chevron">{open ? "▴" : "▾"}</span>
