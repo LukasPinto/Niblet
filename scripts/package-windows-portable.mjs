@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /**
  * Empaqueta un .zip portable de Windows a partir de un build Tauri release.
- * Incluye el exe, DLLs hermanas y el árbol resources/ (igual que instala NSIS).
+ * Incluye el exe, DLLs hermanas y resources/ si el proyecto los define.
  */
 
 import {
   cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -24,6 +25,18 @@ const releaseDir = path.join(projectRoot, "src-tauri", "target", "release");
 const productName = "Niblet";
 const cargoExeName = "niblet.exe";
 const friendlyExeName = `${productName}.exe`;
+
+/** Carpetas de build que no deben ir al zip portable. */
+const SKIP_DIRS = new Set([
+  "bundle",
+  "deps",
+  "build",
+  "examples",
+  "incremental",
+  "nsis",
+  "wix",
+  ".fingerprint",
+]);
 
 function readVersion() {
   const fromEnv = process.env.VERSION?.trim();
@@ -52,17 +65,34 @@ Notas:
     y reemplazá la carpeta cuando quieras actualizar.
 `;
 
+function copyReleaseSibling(srcName, stagingApp) {
+  const srcPath = path.join(releaseDir, srcName);
+  const destPath = path.join(stagingApp, srcName);
+
+  if (SKIP_DIRS.has(srcName)) return false;
+
+  const stat = lstatSync(srcPath);
+  if (stat.isDirectory()) {
+    cpSync(srcPath, destPath, { recursive: true });
+    return true;
+  }
+
+  if (!stat.isFile()) return false;
+
+  if (/\.(exe|pdb|rlib|d|exp|lib|ilk|txt)$/i.test(srcName)) {
+    return false;
+  }
+
+  cpSync(srcPath, destPath);
+  return true;
+}
+
 function main() {
   const exePath = path.join(releaseDir, cargoExeName);
   if (!existsSync(exePath)) {
     throw new Error(
       `No se encontró ${exePath}. ¿Completó bien "tauri build"?`,
     );
-  }
-
-  const resourceDir = path.join(releaseDir, "resources");
-  if (!existsSync(resourceDir)) {
-    throw new Error(`No se encontró ${resourceDir}.`);
   }
 
   const version = readVersion();
@@ -77,17 +107,20 @@ function main() {
 
   cpSync(exePath, path.join(stagingApp, friendlyExeName));
 
+  const copied = [];
   for (const sibling of readdirSync(releaseDir)) {
-    if (/\.dll$/i.test(sibling)) {
-      cpSync(
-        path.join(releaseDir, sibling),
-        path.join(stagingApp, sibling),
-      );
+    if (sibling === cargoExeName) continue;
+    if (copyReleaseSibling(sibling, stagingApp)) {
+      copied.push(sibling);
     }
   }
 
-  cpSync(resourceDir, path.join(stagingApp, "resources"), { recursive: true });
   writeFileSync(path.join(stagingApp, "README-portable.txt"), README, "utf8");
+
+  console.log(
+    `[package-portable] ${friendlyExeName}` +
+      (copied.length ? ` + ${copied.join(", ")}` : " (sin resources extra)"),
+  );
 
   const outDir = path.join(projectRoot, "release-assets");
   mkdirSync(outDir, { recursive: true });
