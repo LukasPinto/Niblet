@@ -1,5 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  EyeOff,
+  Pin,
+  PinOff,
+} from "lucide-react";
 import { columnLabel } from "../../lib/database/types";
 import type { SortState } from "../../lib/database/viewConfig";
 
@@ -128,7 +137,7 @@ export function ColumnHeaderMenu({
               onClose();
             }}
           >
-            <span className="db-col-menu-ico">↑</span>
+            <span className="db-col-menu-ico"><ArrowUp /></span>
             Ordenar ascendente
           </button>
           <button
@@ -139,7 +148,7 @@ export function ColumnHeaderMenu({
               onClose();
             }}
           >
-            <span className="db-col-menu-ico">↓</span>
+            <span className="db-col-menu-ico"><ArrowDown /></span>
             Ordenar descendente
           </button>
           {sortedHere && (
@@ -165,7 +174,7 @@ export function ColumnHeaderMenu({
                 onClose();
               }}
             >
-              <span className="db-col-menu-ico">📌</span>
+              <span className="db-col-menu-ico"><PinOff /></span>
               Descongelar
             </button>
           ) : (
@@ -177,7 +186,7 @@ export function ColumnHeaderMenu({
                 onClose();
               }}
             >
-              <span className="db-col-menu-ico">📌</span>
+              <span className="db-col-menu-ico"><Pin /></span>
               Congelar
             </button>
           )}
@@ -192,7 +201,7 @@ export function ColumnHeaderMenu({
                   onClose();
                 }}
               >
-                <span className="db-col-menu-ico">👁</span>
+                <span className="db-col-menu-ico"><EyeOff /></span>
                 Ocultar
               </button>
             </>
@@ -204,7 +213,7 @@ export function ColumnHeaderMenu({
               className="db-col-menu-item"
               onClick={() => startInsert("left")}
             >
-              <span className="db-col-menu-ico">←</span>
+              <span className="db-col-menu-ico"><ArrowLeft /></span>
               Insertar a la izquierda
             </button>
           )}
@@ -214,7 +223,7 @@ export function ColumnHeaderMenu({
               className="db-col-menu-item"
               onClick={() => startInsert("right")}
             >
-              <span className="db-col-menu-ico">→</span>
+              <span className="db-col-menu-ico"><ArrowRight /></span>
               Insertar a la derecha
             </button>
           )}

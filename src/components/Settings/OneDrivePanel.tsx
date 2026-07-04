@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Cloud, TriangleAlert } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useVaultStore, DEFAULT_ONEDRIVE } from "../../stores/vaultStore";
 import { useNotesStore } from "../../stores/notesStore";
@@ -152,7 +153,7 @@ export default function OneDrivePanel() {
 
   return (
     <div className="set-card" style={{ gridColumn: "1 / -1" }}>
-      <div className="set-title">☁️ Sincronización con OneDrive</div>
+      <div className="set-title"><Cloud /> Sincronización con OneDrive</div>
 
       {!configured && (
         <div className="od-setup">
@@ -286,15 +287,15 @@ export default function OneDrivePanel() {
       )}
 
       {error && (
-        <p className="muted" style={{ color: "var(--red)" }}>
-          ⚠️ {error}
+        <p className="muted" style={{ color: "var(--red)", display: "flex", alignItems: "center", gap: 6 }}>
+          <TriangleAlert style={{ width: 15, height: 15, flex: "none" }} /> {error}
         </p>
       )}
 
       {syncResult && syncResult.conflicts.length > 0 && (
         <>
           <div className="set-title" style={{ marginTop: 14 }}>
-            ⚠️ Conflictos ({syncResult.conflicts.length})
+            <TriangleAlert /> Conflictos ({syncResult.conflicts.length})
           </div>
           <p className="muted">Ambos lados cambiaron. Elige qué versión conservar:</p>
           {syncResult.conflicts.map((rel) => (

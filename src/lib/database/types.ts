@@ -23,14 +23,14 @@ export const TASKS_COL_WIDTH = 88;
 
 export const KNOWN_ORDER = ["fecha", "tags", "animo"];
 export const COL_LABEL: Record<string, string> = {
-  fecha: "📅 Fecha",
-  tags: "🏷️ Tags",
-  animo: "😀 Ánimo",
+  fecha: "Fecha",
+  tags: "Tags",
+  animo: "Ánimo",
 };
 
 export function columnLabel(key: string): string {
   if (key === NOTE_COLUMN) return "Nota";
-  if (key === TASKS_COLUMN) return "☑ Tareas";
+  if (key === TASKS_COLUMN) return "Tareas";
   return COL_LABEL[key] ?? key;
 }
 

@@ -5,7 +5,6 @@ import ErrorBoundary from "./ErrorBoundary";
 import "./styles/tokens.css";
 import "./styles/components.css";
 import "./styles/layout.css";
-import "highlight.js/styles/github-dark.css";
 
 // Errores no capturados → mostrarlos en pantalla en vez de dejar todo en negro.
 function showFatal(msg: string) {

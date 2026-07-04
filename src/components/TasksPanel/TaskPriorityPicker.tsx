@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
+import { Flag } from "lucide-react";
 
 const PRESETS = [
-  { value: "high", label: "Alta", className: "prio-high", icon: "🚩" },
-  { value: "medium", label: "Media", className: "prio-medium", icon: "🚩" },
-  { value: "low", label: "Baja", className: "prio-low", icon: "🚩" },
+  { value: "high", label: "Alta", className: "prio-high" },
+  { value: "medium", label: "Media", className: "prio-medium" },
+  { value: "low", label: "Baja", className: "prio-low" },
 ] as const;
 
 interface Props {
@@ -68,7 +69,7 @@ export default function TaskPriorityPicker({ initialPriority, onSelect, onClose,
             className={`priority-option ${p.className}${initialPriority === p.value ? " active" : ""}`}
             onClick={() => pick(p.value)}
           >
-            <span className="priority-option-icon">{p.icon}</span>
+            <span className="priority-option-icon"><Flag style={{ width: 14, height: 14 }} /></span>
             {p.label}
           </button>
         ))}

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Notebook } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { useVaultStore } from "./stores/vaultStore";
 import { useNotesStore } from "./stores/notesStore";
@@ -174,7 +175,7 @@ export default function App() {
     return (
       <div className="app" style={{ gridTemplateColumns: "1fr" }}>
         <div className="center-state">
-          <div className="cs-emoji">📓</div>
+          <div className="cs-emoji"><Notebook style={{ width: 44, height: 44 }} /></div>
           <p className="muted">Cargando Niblet…</p>
         </div>
       </div>

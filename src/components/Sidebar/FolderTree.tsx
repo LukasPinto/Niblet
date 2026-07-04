@@ -1,5 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  CalendarDays,
+  ChevronRight,
+  FileText,
+  Folder,
+  GraduationCap,
+  Guitar,
+  Image as ImageIcon,
+  Terminal,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
+import {
   ancestorFolderPaths,
   buildFolderTree,
   loadExpandedPaths,
@@ -38,17 +50,20 @@ function imageLabel(img: ImageEntry): string {
   return ext ? `${img.name}.${ext}` : img.name;
 }
 
-const FOLDER_ICONS: Record<string, string> = {
-  Diario: "🗓️",
-  Hacking: "💻",
-  Universidad: "🎓",
-  Práctica: "🛠️",
-  Guitarra: "🎸",
+/** Tamaño uniforme de los iconos del árbol (el reset global los pondría a 18px). */
+const TREE_ICON = { width: 16, height: 16 } as const;
+
+const FOLDER_ICONS: Record<string, LucideIcon> = {
+  Diario: CalendarDays,
+  Hacking: Terminal,
+  Universidad: GraduationCap,
+  Práctica: Wrench,
+  Guitarra: Guitar,
 };
 
-function folderIcon(name: string, depth: number): string {
-  if (depth === 0) return FOLDER_ICONS[name] ?? "📁";
-  return "📁";
+function folderIcon(name: string, depth: number) {
+  const Icon = depth === 0 ? FOLDER_ICONS[name] ?? Folder : Folder;
+  return <Icon style={TREE_ICON} />;
 }
 
 interface TreeBranchProps {
@@ -174,7 +189,7 @@ function TreeBranch({
             onClick={() => onToggle(node.path)}
           >
             <span className={`tree-chevron ${isExpanded ? "open" : ""}`}>
-              {hasChildren ? "▸" : ""}
+              {hasChildren ? <ChevronRight style={{ width: 14, height: 14 }} /> : ""}
             </span>
           </button>
           <button
@@ -252,7 +267,13 @@ function TreeBranch({
                 onContextMenu(e, note.folder, "note", note.path, note.name);
               }}
             >
-              <span className="tree-ico">{isTodayDaily || isOpenDaily ? "🗓️" : "📄"}</span>
+              <span className="tree-ico">
+                {isTodayDaily || isOpenDaily ? (
+                  <CalendarDays style={TREE_ICON} />
+                ) : (
+                  <FileText style={TREE_ICON} />
+                )}
+              </span>
               <span className="tree-label">
                 {note.name}
                 {isTodayDaily && <span className="tree-daily-badge">hoy</span>}
@@ -279,7 +300,7 @@ function TreeBranch({
                 onContextMenu(e, img.folder, "image", img.path, imageLabel(img));
               }}
             >
-              <span className="tree-ico">🖼️</span>
+              <span className="tree-ico"><ImageIcon style={TREE_ICON} /></span>
               <span className="tree-label">{imageLabel(img)}</span>
             </button>
           ))}

@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { Block, TableData } from "../../lib/blockParser";
 import { normalizeTableRows } from "../../lib/blockParser";
+import type { BlockInputEl } from "../../lib/blockInput";
 
 interface Props {
   block: Block;
   onChange: (id: string, table: TableData) => void;
+  /** Registra el contenedor del bloque (para foco/indent/eliminar, como imagen/divisor). */
+  registerRef?: (id: string, el: BlockInputEl | null) => void;
+  /** Tab/Shift+Tab (indentar), Enter (nuevo bloque), Backspace/Delete: solo cuando
+   *  el bloque en sí tiene foco, no mientras se edita una celda (ver stopPropagation
+   *  en `onCellKeyDown`). */
+  onKeyDown?: (e: React.KeyboardEvent, block: Block) => void;
 }
 
 function TrashIcon() {
@@ -19,7 +26,7 @@ function TrashIcon() {
   );
 }
 
-export default function TableBlockView({ block, onChange }: Props) {
+export default function TableBlockView({ block, onChange, registerRef, onKeyDown }: Props) {
   const cellRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const data = block.table ?? { rows: [["", "", ""], ["", "", ""]], headerRow: true };
   const rows = normalizeTableRows(data.rows);
@@ -68,6 +75,9 @@ export default function TableBlockView({ block, onChange }: Props) {
   };
 
   const onCellKeyDown = (e: React.KeyboardEvent, r: number, c: number) => {
+    // Editando una celda: nunca debe llegar al manejador del bloque (indentar,
+    // nuevo bloque, eliminar), solo la navegación de celdas de aquí abajo.
+    e.stopPropagation();
     if (e.key === "Tab") {
       e.preventDefault();
       const dir = e.shiftKey ? -1 : 1;
@@ -113,7 +123,12 @@ export default function TableBlockView({ block, onChange }: Props) {
   );
 
   return (
-    <div className="block block-table">
+    <div
+      className="block block-table"
+      tabIndex={0}
+      ref={(el) => registerRef?.(block.id, el)}
+      onKeyDown={(e) => onKeyDown?.(e, block)}
+    >
       <div className="block-table-scroll">
         <table className="block-table-grid">
           {headerRow && rows.length > 0 && (

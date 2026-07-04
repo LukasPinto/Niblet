@@ -27,9 +27,12 @@
   height: 100vh;
   background: var(--base);
   transition: grid-template-columns 200ms cubic-bezier(0.2, 0.6, 0.2, 1);
+  --sidebar-width: 268px;
+  --main-inset-end: 18px;
 }
 .app.rp-open {
   grid-template-columns: 268px 1fr 240px;
+  --main-inset-end: 240px;
 }
 
 /* ============ RIGHT PANEL ============ */
@@ -665,7 +668,7 @@
 .note-tab.drag-over {
   box-shadow: inset 2px 0 0 var(--accent);
 }
-.note-tab-ico { flex: none; font-size: 11px; opacity: 0.8; }
+.note-tab-ico { flex: none; opacity: 0.8; display: inline-flex; align-items: center; }
 .note-tab.db-tab:not(.active) {
   background: color-mix(in srgb, var(--blue) 6%, var(--mantle));
 }
@@ -688,12 +691,14 @@
   background: none;
   border: 0;
   color: var(--muted);
-  font-size: 16px;
   line-height: 1;
   padding: 0 2px;
   cursor: pointer;
   border-radius: 4px;
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .note-tab-close:hover { background: var(--surface2); color: var(--text); }
 .note-tab-panel[hidden] { display: none !important; }
@@ -737,10 +742,16 @@
 .view-note {
   max-width: 880px;
   margin: 0 auto;
-  padding: 36px 32px;
+  /* Canalón izquierdo más ancho: reserva sitio en el margen para los controles
+     de bloque [＋][⠿] (estilo Notion). Se aplica a todo el .doc, así Bloques y
+     Vista comparten el mismo borde izquierdo y siguen alineados entre sí. */
+  padding: 36px 32px 36px 56px;
+}
+@media (max-width: 760px) {
+  .view-note { padding-left: 40px; }
 }
 .doc { min-width: 0; }
-.doc-icon { font-size: 40px; margin-bottom: 6px; }
+.doc-icon { margin-bottom: 6px; color: var(--subtext); line-height: 0; }
 .doc-title {
   font-size: 34px;
   font-weight: 800;
@@ -762,9 +773,32 @@
   border-bottom: 1px solid var(--line);
 }
 .prop { display: flex; gap: 16px; font-size: 13px; }
-.prop-k { color: var(--muted); width: 110px; flex: none; }
+.prop-k { color: var(--muted); width: 110px; flex: none; display: inline-flex; align-items: center; gap: 6px; }
+.prop-k svg { width: 15px; height: 15px; }
 .prop-v { color: var(--subtext); }
 .tags { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* Selector de modo flotante (Bloques / Markdown / Vista) */
+.note-mode-float {
+  position: fixed;
+  bottom: max(20px, env(safe-area-inset-bottom, 0px));
+  left: calc(
+    var(--sidebar-width) +
+    (100vw - var(--sidebar-width) - var(--main-inset-end)) / 2
+  );
+  transform: translateX(-50%);
+  z-index: 60;
+  pointer-events: none;
+}
+.note-mode-float .seg {
+  pointer-events: auto;
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.28),
+    0 0 0 1px color-mix(in srgb, var(--line) 80%, transparent);
+  background: color-mix(in srgb, var(--mantle) 92%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
 
 /* editor / preview */
 .editor-wrap-host { position: relative; }
@@ -788,22 +822,116 @@
 .cm-selectionBackground,
 .cm-editor ::selection { background: color-mix(in srgb, var(--accent) 28%, transparent) !important; }
 
-/* preview markdown */
-.md-preview h1 { font-size: 28px; margin: 18px 0 10px; letter-spacing: -0.02em; }
-.md-preview h2 { font-size: 20px; margin: 26px 0 10px; letter-spacing: -0.01em; }
-.md-preview h3 { font-size: 16px; margin: 20px 0 8px; }
-.md-preview p { color: var(--subtext); margin: 10px 0; }
+/* preview markdown — variables de flujo compartidas con el editor de bloques */
+.md-preview {
+  --flow-gap-paragraph: 10px;
+  --flow-gap-h1: 18px;
+  --flow-gap-h2: 26px;
+  --flow-gap-h3: 20px;
+  --flow-gap-after-h3: 8px;
+  --flow-gap-block: 12px;
+}
+.md-preview > :first-child { margin-top: 0; }
+.md-preview h1,
+.md-preview h2,
+.md-preview h3 {
+  color: var(--text);
+  font-weight: 700;
+}
+/* line-height explícito: igual que .block-heading1/2/3 en Bloques; si se
+   hereda el 1.55 del body, cada encabezado queda unos px más alto en la Vista
+   y los espaciados de las dos vistas dejan de coincidir. */
+.md-preview h1 { font-size: 28px; line-height: 1.25; margin: var(--flow-gap-h1) 0 var(--flow-gap-paragraph); letter-spacing: -0.02em; }
+.md-preview h2 { font-size: 20px; line-height: 1.3; margin: var(--flow-gap-h2) 0 var(--flow-gap-paragraph); letter-spacing: -0.01em; }
+.md-preview h3 { font-size: 16px; line-height: 1.35; margin: var(--flow-gap-h3) 0 var(--flow-gap-after-h3); }
+.md-preview p { color: var(--subtext); margin: var(--flow-gap-paragraph) 0; line-height: 1.55; }
+.md-preview strong { font-weight: 700; color: var(--text); }
+.md-preview em { font-style: italic; }
+.md-preview p:has(> img:only-child) { margin: var(--flow-gap-paragraph) 0; text-align: center; }
+.md-preview p > img { margin: 0 auto; display: block; }
 .md-preview img {
   max-width: 100%;
   height: auto;
   border-radius: var(--r-sm);
-  margin: 10px 0;
 }
-.md-preview ul, .md-preview ol { color: var(--subtext); margin: 10px 0; padding-left: 22px; }
+.md-preview hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: var(--flow-gap-block) 0;
+}
+.md-preview ul, .md-preview ol {
+  color: var(--subtext);
+  margin: var(--flow-gap-paragraph) 0;
+  padding-left: 22px;
+}
+/* Sublistas: sin hueco extra respecto al ítem padre (como bloques con indent). */
+.md-preview li > ul,
+.md-preview li > ol {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.md-preview li {
+  line-height: 1.55;
+}
+/* remark-GFM envuelve ítems sueltos en <p>; quitar márgenes duplicados. */
+.md-preview li > p {
+  margin: 0;
+}
+.md-preview li > p + p {
+  margin-top: var(--flow-gap-paragraph);
+}
+/* Lista / párrafo → bloque con borde: un solo margen (como en el editor de bloques). */
+.md-preview ol:has(+ pre),
+.md-preview ul:has(+ pre),
+.md-preview ol:has(+ blockquote),
+.md-preview ul:has(+ blockquote),
+.md-preview ol:has(+ table),
+.md-preview ul:has(+ table),
+.md-preview p:has(+ pre),
+.md-preview p:has(+ blockquote),
+.md-preview p:has(+ table),
+.md-preview pre:has(+ pre) {
+  margin-bottom: 0;
+}
+.md-preview ol + pre,
+.md-preview ul + pre,
+.md-preview ol + blockquote,
+.md-preview ul + blockquote,
+.md-preview ol + table,
+.md-preview ul + table,
+.md-preview p + pre,
+.md-preview p + blockquote,
+.md-preview p + table,
+.md-preview pre + pre {
+  margin-top: var(--flow-gap-block);
+}
+/* pre (overflow) no colapsa márgenes → espaciado explícito como en bloques. */
+.md-preview pre + p,
+.md-preview pre + ol,
+.md-preview pre + ul {
+  margin-top: var(--flow-gap-paragraph);
+}
+.md-preview pre + h1 { margin-top: var(--flow-gap-h1); }
+.md-preview pre + h2 { margin-top: var(--flow-gap-h2); }
+.md-preview pre + h3 { margin-top: var(--flow-gap-h3); }
+.md-preview pre + blockquote,
+.md-preview pre + table,
+.md-preview pre + hr {
+  margin-top: var(--flow-gap-block);
+}
+.md-preview p:has(> img:only-child):has(+ pre) {
+  margin-bottom: 0;
+}
+.md-preview p:has(> img:only-child) + pre {
+  margin-top: var(--flow-gap-block);
+}
+.md-preview p:empty {
+  display: none;
+  margin: 0;
+}
 .md-preview a { color: var(--accent); text-decoration: none; }
 .md-preview a:hover { text-decoration: underline; }
-.md-preview a.wikilink-pill,
-.block-wikilink {
+.md-preview a.wikilink-pill {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -823,25 +951,40 @@
   background: color-mix(in srgb, var(--accent) 22%, var(--surface));
   text-decoration: underline;
 }
-.wikilink-pill-ico,
-.block-wikilink-ico {
+.wikilink-pill-ico {
   font-size: 11px;
   line-height: 1;
   color: var(--accent);
   flex-shrink: 0;
 }
-.wikilink-pill-label,
-.block-wikilink-label {
+.wikilink-pill-label {
   color: inherit;
 }
-.md-preview a.wikilink--unresolved,
-.block-wikilink--unresolved {
+.md-preview a.wikilink--unresolved {
   color: var(--muted);
   border-style: dashed;
   text-decoration: underline dotted;
   cursor: default;
 }
 .md-preview a.wikilink--unresolved:hover { text-decoration: underline dotted; }
+/* En Bloques el bloque estático debe verse lo más parecido posible en ancho al
+   markdown crudo `[[Nota]]` que muestra el textarea al entrar en edición — si
+   no, el pill (con ícono + padding) envuelve distinto y el bloque salta de
+   altura al hacer foco/blur. Estilo sutil (subrayado + color), sin ícono ni
+   fondo, igual que `.cm-wikilink` en el editor de nota completo. */
+.block-wikilink {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.block-wikilink-ico { display: none; }
+.block-wikilink-label { color: inherit; }
+.block-wikilink--unresolved {
+  color: var(--muted);
+  text-decoration: underline dotted;
+  cursor: default;
+}
 .block-edit .block-wikilink { margin: 0 1px; }
 .cm-editor .cm-wikilink {
   color: var(--accent);
@@ -856,24 +999,106 @@
   border-radius: 3px;
 }
 .cm-editor .cm-content { cursor: text; }
+.md-preview :not(pre) > code,
+.md-preview p code,
+.md-preview li code,
+.md-preview td code {
+  font-family: var(--mono);
+  font-size: 0.86em;
+  background: var(--surface);
+  padding: 1px 6px;
+  border-radius: 5px;
+  color: var(--peach);
+}
+.md-preview :not(pre) > code.hljs {
+  background: var(--surface) !important;
+  padding: 1px 6px !important;
+  color: var(--peach) !important;
+}
 .md-preview code { font-family: var(--mono); font-size: 0.86em; background: var(--surface); padding: 1px 6px; border-radius: 5px; color: var(--peach); }
-.md-preview pre { background: var(--crust); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 14px; overflow-x: auto; margin: 12px 0; }
-.md-preview pre code { background: none; padding: 0; color: var(--text); }
+.md-preview pre {
+  background: var(--crust);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.md-preview pre .md-code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 35%, var(--crust));
+  font-family: var(--font);
+  font-size: 12px;
+  color: var(--subtext);
+}
+.md-preview pre .md-code-lang { color: var(--subtext); }
+.md-preview pre .md-code-copy-btn {
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--subtext);
+  font-family: var(--font);
+  font-size: 11px;
+  cursor: pointer;
+  transition: color var(--tr), background var(--tr);
+}
+.md-preview pre .md-code-copy-btn:hover { color: var(--text); background: color-mix(in srgb, var(--surface) 50%, transparent); }
+.md-preview pre .md-code-body {
+  padding: 14px;
+  overflow-x: auto;
+}
+.md-preview pre code,
+.md-preview pre code.hljs {
+  display: block;
+  background: none !important;
+  padding: 0 !important;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: var(--text);
+}
+.md-preview pre .hljs {
+  background: none !important;
+  color: inherit;
+}
+/* Mismo resaltado (colores/parser) que Bloques — ver .block-code .cm-hl-*. */
+.md-preview pre .cm-hl-keyword { color: var(--blue); font-weight: 600; }
+.md-preview pre .cm-hl-string { color: var(--green); }
+.md-preview pre .cm-hl-number { color: var(--peach); }
+.md-preview pre .cm-hl-type { color: var(--peach); }
+.md-preview pre .cm-hl-fn { color: var(--blue); }
+.md-preview pre .cm-hl-name { color: var(--text); }
+.md-preview pre .cm-hl-comment { color: var(--muted); font-style: italic; }
+.md-preview pre .cm-hl-punct { color: var(--subtext); }
 .md-preview blockquote {
   border-left: 3px solid var(--accent);
   padding: 6px 14px;
-  margin: 12px 0;
+  margin: var(--flow-gap-block) 0;
   background: color-mix(in srgb, var(--accent) 7%, transparent);
   border-radius: 0 4px 4px 0;
   color: var(--subtext);
+  font-style: italic; /* como .block-quote en Bloques */
 }
+/* Sin margen en los bordes: el padding (6px 14px) manda, igual que en
+   .block-quote. Entre hijos (párrafos, citas anidadas) los márgenes normales
+   siguen aplicando. */
+.md-preview blockquote > :first-child { margin-top: 0; }
+.md-preview blockquote > :last-child { margin-bottom: 0; }
 .md-preview ul.contains-task-list { list-style: none; padding-left: 4px; }
 .md-preview .task-list-item { display: flex; align-items: flex-start; gap: 8px; }
 .md-preview .task-list-item input { margin-top: 5px; accent-color: var(--accent); }
 .md-preview table {
   width: 100%;
   border-collapse: collapse;
-  margin: 12px 0;
+  margin: var(--flow-gap-block) 0;
   font-size: 14px;
 }
 .md-preview th,
@@ -891,7 +1116,15 @@
 }
 
 /* ----- BLOCK EDITOR (tipo Notion) ----- */
-.block-editor { min-height: 50vh; display: flex; flex-direction: column; gap: 0; }
+.block-editor { min-height: 50vh; display: flex; flex-direction: column; gap: 0; overflow: visible; }
+.block-editor ::selection { background: color-mix(in srgb, var(--accent) 28%, transparent); }
+.block-editor[hidden],
+.block-editor.block-editor-dormant {
+  display: none !important;
+  min-height: 0;
+  pointer-events: none;
+}
+.block-editor-dormant { min-height: 0; }
 .block-row {
   position: relative;
   display: flex;
@@ -899,79 +1132,122 @@
   gap: 2px;
   border-radius: 6px;
   transition: background var(--tr);
+  overflow: visible;
 }
 .block-row:hover { background: color-mix(in srgb, var(--surface) 30%, transparent); }
-/* Espaciado selectivo (gap del editor = 0): listas apretadas, títulos/párrafos
-   con aire, imitando la Vista. */
-.block-row-heading1 { margin: 18px 0 10px; }
-.block-row-heading2 { margin: 26px 0 10px; }
-.block-row-heading3 { margin: 20px 0 8px; }
-.block-row-paragraph { margin: 10px 0; }
-.block-row-quote,
-.block-row-code,
-.block-row-image,
-.block-row-table { margin: 8px 0; }
-.block-editor > .block-row:first-child { margin-top: 0; }
+/* Espaciado entre filas: solo margin-top (flex no colapsa márgenes como .md-preview). */
+.block-editor {
+  --flow-gap-paragraph: 10px;
+  --flow-gap-h1: 18px;
+  --flow-gap-h2: 26px;
+  --flow-gap-h3: 20px;
+  --flow-gap-after-h3: 8px;
+  --flow-gap-block: 12px;
+}
+.block-row { margin: 0; }
+.block-row + .block-row-paragraph,
+.block-row + .block-row-image { margin-top: var(--flow-gap-paragraph); }
+.block-row + .block-row-bulletList,
+.block-row + .block-row-numberedList,
+.block-row + .block-row-taskItem { margin-top: var(--flow-gap-paragraph); }
+.block-row-bulletList + .block-row-bulletList,
+.block-row-numberedList + .block-row-numberedList,
+.block-row-taskItem + .block-row-taskItem { margin-top: 0; }
+.block-row + .block-row-heading1 { margin-top: var(--flow-gap-h1); }
+.block-row + .block-row-heading2 { margin-top: var(--flow-gap-h2); }
+.block-row + .block-row-heading3 { margin-top: var(--flow-gap-h3); }
+.block-row + .block-row-code,
+.block-row + .block-row-quote,
+.block-row + .block-row-table,
+.block-row + .block-row-divider { margin-top: var(--flow-gap-block); }
+.block-row-heading1 + .block-row-paragraph,
+.block-row-heading1 + .block-row-image,
+.block-row-heading1 + .block-row-bulletList,
+.block-row-heading1 + .block-row-numberedList,
+.block-row-heading1 + .block-row-taskItem,
+.block-row-heading2 + .block-row-paragraph,
+.block-row-heading2 + .block-row-image,
+.block-row-heading2 + .block-row-bulletList,
+.block-row-heading2 + .block-row-numberedList,
+.block-row-heading2 + .block-row-taskItem { margin-top: var(--flow-gap-paragraph); }
+.block-row-heading3 + .block-row-paragraph,
+.block-row-heading3 + .block-row-image,
+.block-row-heading3 + .block-row-bulletList,
+.block-row-heading3 + .block-row-numberedList,
+.block-row-heading3 + .block-row-taskItem { margin-top: var(--flow-gap-after-h3); }
+.block-row-heading1 + .block-row-code,
+.block-row-heading2 + .block-row-code,
+.block-row-heading3 + .block-row-code,
+.block-row-heading1 + .block-row-quote,
+.block-row-heading2 + .block-row-quote,
+.block-row-heading3 + .block-row-quote,
+.block-row-heading1 + .block-row-table,
+.block-row-heading2 + .block-row-table,
+.block-row-heading3 + .block-row-table { margin-top: var(--flow-gap-block); }
+.block-row-empty.block-row-paragraph {
+  margin-top: 0 !important;
+  min-height: 0;
+}
+/* Párrafos vacíos intermedios (notas antiguas): sin altura extra. */
+.block-row-empty.block-row-paragraph .block-display {
+  min-height: 0;
+  line-height: 0;
+  overflow: hidden;
+  opacity: 0;
+}
 .block-row.dragging { opacity: 0.45; }
 .block-row.drag-over {
   box-shadow: inset 0 2px 0 var(--accent);
 }
-/* Controles flotantes: arrastrar en el margen izquierdo, eliminar en el
-   derecho. Ninguno ocupa ancho, así el contenido queda alineado con la Vista. */
-.block-drag-handle {
+/* Controles del bloque, estilo Notion: grupo [＋][⠿] en el margen izquierdo,
+   fuera del flujo para no descuadrar el contenido respecto a la Vista.
+   Aparecen al pasar el ratón por la fila. */
+.block-controls {
   position: absolute;
   right: 100%;
   top: 0;
-  margin-right: 2px;
-  width: 18px;
-  padding-top: 4px;
-  text-align: center;
-  font-size: 12px;
-  color: var(--muted);
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
-  opacity: 0;
-  transition: opacity var(--tr), color var(--tr);
-}
-.block-row:hover .block-drag-handle { opacity: 1; }
-.block-drag-handle:hover { color: var(--subtext) !important; }
-.block-delete-btn {
-  position: absolute;
-  left: 100%;
-  top: 0;
-  margin-left: 4px;
+  margin-right: 3px;
   display: flex;
   align-items: center;
+  gap: 0;
+  padding-top: 1px;
+  opacity: 0;
+  transition: opacity var(--tr);
+}
+.block-row:hover .block-controls { opacity: 1; }
+/* Al arrastrar el asa la fila deja de estar en :hover; mantén los controles. */
+.block-row.dragging .block-controls { opacity: 1; }
+.block-ctl {
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 18px;
-  margin-top: 2px;
+  width: 21px;
+  height: 24px;
   padding: 0;
   border: 0;
-  border-radius: 4px;
+  border-radius: 5px;
   background: transparent;
   color: var(--muted);
   cursor: pointer;
-  opacity: 0;
-  transition: opacity var(--tr), color var(--tr), background var(--tr);
+  transition: background var(--tr), color var(--tr);
 }
-.block-row:hover .block-delete-btn { opacity: 1; }
-.block-delete-btn svg {
-  width: 14px;
-  height: 14px;
+.block-ctl svg { width: 16px; height: 16px; }
+/* En ventanas estrechas el canalón se encoge: controles más pequeños para que
+   el grupo [＋][⠿] siga entrando sin recortarse. */
+@media (max-width: 760px) {
+  .block-ctl { width: 17px; height: 22px; }
+  .block-ctl svg { width: 14px; height: 14px; }
 }
-.block-delete-btn:hover {
-  color: var(--red, #f38ba8);
-  background: color-mix(in srgb, var(--red, #f38ba8) 12%, transparent);
+.block-ctl:hover {
+  background: color-mix(in srgb, var(--overlay) 26%, transparent);
+  color: var(--subtext);
 }
-.block-row-empty textarea.block-edit.no-ph,
-.block-row-empty .block-edit.no-ph:empty {
-  min-height: 0;
-  padding-top: 1px;
-  padding-bottom: 1px;
-  line-height: 1;
+.block-drag-handle {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
 }
+.block-drag-handle:active { cursor: grabbing; }
 .block-add-trailing {
   display: flex;
   align-items: center;
@@ -1007,16 +1283,21 @@
   line-height: 1;
 }
 .block-row .block { flex: 1; min-width: 0; }
+/* Ojo: nada de `.block:hover { background: none }` — ganaría en especificidad
+   a .block-code/.block-quote y les quitaría el fondo al pasar el ratón; como
+   Chromium no aplica :hover a nodos recién insertados hasta mover el ratón,
+   el remontaje pre→CodeMirror parpadeaba claro→oscuro→claro al clickear. */
 .block { border-radius: 6px; transition: background var(--tr); }
-.block:hover { background: none; }
+
+/* Tipografía compartida: vista estática y textarea deben verse idénticos. */
+.block-display,
 .block-edit {
   outline: none;
-  padding: 2px 0;
+  padding: 0;
   border-radius: 6px;
-  color: var(--text);
-  line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
+  line-height: 1.55;
 }
 textarea.block-edit {
   display: block;
@@ -1025,7 +1306,14 @@ textarea.block-edit {
   background: transparent;
   resize: none;
   overflow: hidden;
-  font: inherit;
+  min-height: 1.35em;
+  /* Heredar métricas del contenedor .block; `font: inherit` rompía títulos. */
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
   field-sizing: content;
 }
 .block-edit[contenteditable="true"] {
@@ -1047,34 +1335,89 @@ textarea.block-edit {
   color: var(--peach);
 }
 .be-inline-bold { font-weight: 700; color: var(--text); }
+.be-inline-em { font-style: italic; }
+.be-inline-del { text-decoration: line-through; }
 .block-edit.no-ph:empty::before {
   content: none;
 }
-.be-heading1 { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
-.be-heading2 { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
-.be-heading3 { font-size: 16px; font-weight: 700; }
-.be-paragraph { color: var(--subtext); }
-.block-bulletList .block-edit,
-.block-numberedList .block-edit { color: var(--subtext); }
+.block-display {
+  cursor: text;
+  min-height: 1.35em;
+  width: 100%;
+}
+.block-display-ph .block-display {
+  color: var(--muted);
+}
+/* Tipografía por tipo: en el contenedor .block para que textarea vacío herede igual. */
+.block.block-heading1 {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  color: var(--text);
+}
+.block.block-heading2 {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  color: var(--text);
+}
+.block.block-heading3 {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--text);
+}
+.block.block-paragraph { color: var(--subtext); line-height: 1.55; }
+.block.block-bulletList,
+.block.block-numberedList { color: var(--subtext); line-height: 1.55; }
+.block.block-quote { color: var(--subtext); font-style: italic; line-height: 1.55; }
+.block.block-task { color: var(--subtext); line-height: 1.55; }
+.block.block-heading1 .block-display,
+.block.block-heading1 textarea.block-edit,
+.block.block-heading2 .block-display,
+.block.block-heading2 textarea.block-edit,
+.block.block-heading3 .block-display,
+.block.block-heading3 textarea.block-edit,
+.block.block-paragraph .block-display,
+.block.block-paragraph textarea.block-edit,
+.block.block-bulletList .block-display,
+.block.block-bulletList textarea.block-edit,
+.block.block-numberedList .block-display,
+.block.block-numberedList textarea.block-edit,
+.block.block-quote .block-display,
+.block.block-quote textarea.block-edit,
+.block.block-task .block-display,
+.block.block-task textarea.block-edit {
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+}
+.block.block-task .block-display,
+.block.block-task textarea.block-edit { flex: 1; }
+.block.block-task.checked { color: var(--muted); }
+.block.block-task.checked .block-display,
+.block.block-task.checked textarea.block-edit { text-decoration: line-through; }
 .block-bulletList { position: relative; padding-left: 22px; }
 .block-bulletList::before {
   content: "•";
   position: absolute;
   left: 6px;
-  top: 2px;
+  top: 0;
   color: var(--subtext);
   font-weight: 700;
 }
 /* Marcadores anidados como en la Vista: disco → círculo → cuadrado. */
 .block-bulletList[data-indent="1"]::before { content: "◦"; }
-.block-bulletList[data-indent="2"]::before { content: "▪"; font-size: 11px; top: 5px; }
-.block-bulletList[data-indent="3"]::before { content: "▫"; font-size: 11px; top: 5px; }
+.block-bulletList[data-indent="2"]::before { content: "▪"; font-size: 11px; top: 3px; }
+.block-bulletList[data-indent="3"]::before { content: "▫"; font-size: 11px; top: 3px; }
 .block-numberedList { position: relative; padding-left: 22px; }
 .block-numberedList::before {
   content: attr(data-ord) ".";
   position: absolute;
   left: 0;
-  top: 2px;
+  top: 0;
   width: 18px;
   text-align: right;
   color: var(--subtext);
@@ -1086,21 +1429,57 @@ textarea.block-edit {
   border-radius: 0 4px 4px 0;
   padding: 6px 14px;
 }
-.block-quote .block-edit { color: var(--subtext); font-style: italic; }
+/* Citas anidadas (indent = nº de `>`): fondo más intenso, como los fondos
+   apilados de la Vista. El desplazamiento lo pone el padding-left de la fila. */
+.block-quote[data-indent="1"] { background: color-mix(in srgb, var(--accent) 13%, transparent); }
+.block-quote[data-indent="2"] { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.block-quote[data-indent="3"] { background: color-mix(in srgb, var(--accent) 22%, transparent); }
 .block-code {
   background: var(--crust);
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
 }
+.code-block-static {
+  margin: 0;
+  padding: 14px;
+  min-height: 1.6em;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.6;
+  /* Mismo ajuste de línea que CodeMirror (.cm-lineWrapping): si difieren,
+     una línea larga envuelve en otro punto y el bloque cambia de altura
+     al entrar en edición. */
+  white-space: break-spaces;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  cursor: text;
+  border-radius: 0 0 var(--r-sm) var(--r-sm);
+}
+/* Neutraliza el chip de "código en línea" global (components.css `code {}`):
+   sin esto, el <code> que envuelve el resaltado estático hereda su fondo/
+   padding/color peach y todo el bloque se ve como un chip en línea. */
+.code-block-static code {
+  font-family: inherit;
+  font-size: inherit;
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  color: inherit;
+}
 .block-code .code-cm-host .cm-editor {
   font-size: 13px;
 }
 .block-code .code-cm-host .cm-content {
-  padding: 8px 10px;
+  padding: 14px;
   min-height: 1.6em;
   font-family: var(--mono);
   line-height: 1.6;
 }
+/* El tema base de CodeMirror da a cada línea `padding: 0 2px 0 6px`; el <pre>
+   estático no lo tiene, así que al montar el editor el código saltaba 6px a
+   la derecha (y el ancho de ajuste perdía 8px). */
+.block-code .code-cm-host .cm-line { padding: 0; }
 .block-code .cm-hl-keyword { color: var(--blue); font-weight: 600; }
 .block-code .cm-hl-string { color: var(--green); }
 .block-code .cm-hl-number { color: var(--peach); }
@@ -1113,7 +1492,7 @@ textarea.block-edit {
   display: block;
   width: 100%;
   margin: 0;
-  padding: 8px 10px;
+  padding: 14px;
   border: 0;
   border-radius: 0 0 var(--r-sm) var(--r-sm);
   font-family: var(--mono);
@@ -1132,6 +1511,9 @@ textarea.block-edit {
 }
 .code-lang-picker {
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   border-bottom: 1px solid var(--line);
   background: color-mix(in srgb, var(--surface) 35%, var(--crust));
   border-radius: var(--r-sm) var(--r-sm) 0 0;
@@ -1140,7 +1522,6 @@ textarea.block-edit {
   display: flex;
   align-items: center;
   gap: 6px;
-  width: 100%;
   padding: 6px 10px;
   border: 0;
   background: transparent;
@@ -1152,7 +1533,21 @@ textarea.block-edit {
   transition: color var(--tr), background var(--tr);
 }
 .code-lang-btn:hover { color: var(--text); background: color-mix(in srgb, var(--surface) 50%, transparent); }
-.code-lang-chevron { margin-left: auto; font-size: 10px; color: var(--muted); }
+.code-lang-chevron { font-size: 10px; color: var(--muted); }
+.code-copy-btn {
+  flex-shrink: 0;
+  margin-right: 6px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--subtext);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color var(--tr), background var(--tr);
+}
+.code-copy-btn:hover { color: var(--text); background: color-mix(in srgb, var(--surface) 50%, transparent); }
 .code-lang-menu {
   z-index: 200;
   background: var(--mantle);
@@ -1209,7 +1604,9 @@ textarea.block-edit {
   border-radius: var(--r-sm);
   background: var(--mantle);
   overflow: hidden;
+  outline: none;
 }
+.block-table:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
 .block-table-scroll { overflow-x: auto; }
 .block-table-grid {
   width: 100%;
@@ -1301,20 +1698,19 @@ textarea.block-edit {
 }
 
 .block-task { display: flex; align-items: flex-start; gap: 8px; }
-.block-task .block-edit { flex: 1; }
-.block-task.checked .block-edit { color: var(--muted); text-decoration: line-through; }
 .block-task .cb { margin-top: 6px; }
-.block-divider { padding: 8px 6px; cursor: pointer; outline: none; }
+.block-divider { padding: 0; cursor: pointer; outline: none; }
 .block-divider hr { border: 0; border-top: 1px solid var(--line); }
 .block-divider:focus hr { border-top-color: var(--accent); }
 
-.block-image { padding: 6px; outline: none; border-radius: var(--r-sm); }
+.block-image { padding: 0; outline: none; border-radius: var(--r-sm); text-align: center; }
 .block-image:focus { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .block-image-img {
   max-width: 100%;
   max-height: 70vh;
   border-radius: var(--r-sm);
   display: block;
+  margin: 0 auto;
 }
 .block-image-loading, .block-image-missing { font-size: 13px; display: inline-flex; align-items: center; padding: 8px 0; }
 /* Reserva algo de alto mientras la imagen no ha entrado al viewport, para que
@@ -1423,7 +1819,7 @@ textarea.block-edit {
   background: var(--surface);
   color: var(--text);
 }
-.wikilink-picker-ico { flex-shrink: 0; font-size: 16px; line-height: 1.3; }
+.wikilink-picker-ico { flex-shrink: 0; display: inline-flex; align-items: center; color: var(--muted); }
 .wikilink-picker-body { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .wikilink-picker-title { font-size: 13px; font-weight: 600; color: var(--text); }
 .wikilink-picker-path { font-size: 11px; color: var(--muted); }
@@ -1698,6 +2094,9 @@ button.backlink:hover { background: var(--surface); color: var(--accent); }
 .t-main .t-text { color: var(--text); }
 .t-from { font-size: 11.5px; color: var(--muted); cursor: pointer; }
 .t-from:hover { color: var(--accent); }
+.t-from svg, .kan-card-ghost-from svg { vertical-align: -2px; }
+.task-pill svg { vertical-align: -2px; margin-right: 1px; }
+.priority-option-icon { display: inline-flex; align-items: center; }
 .task.done .t-main .t-text { color: var(--muted); text-decoration: line-through; }
 
 /* chevron de colapso de subtareas */
@@ -2269,7 +2668,8 @@ button.backlink:hover { background: var(--surface); color: var(--accent); }
 .db-col-menu-item:hover,
 .db-col-menu-item.active { background: var(--surface); color: var(--text); }
 .db-col-menu-item.active { color: var(--accent); }
-.db-col-menu-ico { width: 16px; text-align: center; flex-shrink: 0; font-size: 12px; }
+.db-col-menu-ico { width: 16px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
+.db-col-menu-ico svg { width: 15px; height: 15px; }
 .db-col-menu-sep { border: none; border-top: 1px solid var(--line); margin: 4px 0; }
 .db-col-menu-naming { padding: 4px 6px 6px; }
 .db-col-menu-hint { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
@@ -2335,7 +2735,7 @@ button.backlink:hover { background: var(--surface); color: var(--accent); }
   resize: none;
   outline: none;
 }
-.row-ico { margin-right: 6px; }
+.row-ico { margin-right: 6px; display: inline-flex; align-items: center; vertical-align: -3px; color: var(--muted); }
 .db td .tag { margin-right: 0; }
 .db .row-link { color: var(--text); cursor: pointer; }
 .db .row-link:hover { color: var(--accent); }
@@ -2468,16 +2868,17 @@ button.backlink:hover { background: var(--surface); color: var(--accent); }
 .db-prop-item:hover { background: var(--surface); }
 .db-prop-item.dragging { opacity: 0.5; }
 .db-prop-item.drop-target { background: color-mix(in srgb, var(--accent) 12%, transparent); }
-.db-prop-drag { cursor: grab; color: var(--muted); user-select: none; }
-.db-prop-type { width: 20px; text-align: center; color: var(--muted); font-size: 11px; }
+.db-prop-drag { cursor: grab; color: var(--muted); user-select: none; display: inline-flex; align-items: center; }
+.db-prop-type { width: 20px; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
 .db-prop-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .db-prop-eye {
   border: 0;
   background: transparent;
   cursor: pointer;
-  font-size: 14px;
   padding: 2px 4px;
   opacity: 0.85;
+  display: inline-flex;
+  align-items: center;
 }
 .db-prop-eye.off { opacity: 0.35; }
 .db-filter-empty { font-size: 12px; margin: 0 0 8px; }
@@ -2821,7 +3222,8 @@ button.backlink:hover { background: var(--surface); color: var(--accent); }
 
 /* settings */
 .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
-.set-title { font-weight: 700; margin-bottom: 12px; }
+.set-title { font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+.set-title svg { width: 17px; height: 17px; color: var(--subtext); }
 .set-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 13px; color: var(--subtext); }
 .set-row:first-of-type { border-top: 0; }
 .set-row code, .set-row .badge { font-size: 12px; }
@@ -2840,7 +3242,7 @@ button.backlink:hover { background: var(--surface); color: var(--accent); }
   padding: 60px 32px;
   color: var(--muted);
 }
-.center-state .cs-emoji { font-size: 48px; }
+.center-state .cs-emoji { font-size: 48px; color: var(--muted); line-height: 0; }
 .center-state h2 { color: var(--text); font-size: 22px; }
 
 .set-input {

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { FileText } from "lucide-react";
 import { useHoverPreviewStore } from "../../stores/hoverPreviewStore";
 import { buildNotePreview, type NotePreviewModel } from "../../lib/notePreview";
 import { useNotesStore } from "../../stores/notesStore";
@@ -77,7 +78,7 @@ export default function LinkHoverPreview() {
       <div className="note-hover-preview-top">
         <div className="note-hover-preview-headrow">
           <span className="note-hover-preview-ico" aria-hidden="true">
-            🗓️
+            <FileText style={{ width: 16, height: 16 }} />
           </span>
           <div className="note-hover-preview-headtext">
             <div className="note-hover-preview-title">{title}</div>

@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { Cloud, FolderOpen, KeyRound, Notebook } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useVaultStore, DEFAULT_ONEDRIVE } from "../../stores/vaultStore";
@@ -173,14 +174,14 @@ export default function Welcome() {
   if (view === "home") {
     return (
       <div className="center-state">
-        <div className="cs-emoji">📓</div>
+        <div className="cs-emoji"><Notebook style={{ width: 44, height: 44 }} /></div>
         <h2>Bienvenido a Niblet</h2>
         <p className="muted" style={{ maxWidth: 400, marginBottom: 28 }}>
           Elige cómo quieres empezar.
         </p>
         <div className="welcome-cards">
           <button className="welcome-card" onClick={() => void openVault()}>
-            <span className="wc-icon">📁</span>
+            <span className="wc-icon"><FolderOpen style={{ width: 30, height: 30 }} /></span>
             <span className="wc-title">Vault local</span>
             <span className="wc-desc">
               Abre una carpeta de tu equipo como Vault y sincroniza
@@ -191,7 +192,7 @@ export default function Welcome() {
             className="welcome-card"
             onClick={() => void handleRemoteClick()}
           >
-            <span className="wc-icon">☁️</span>
+            <span className="wc-icon"><Cloud style={{ width: 30, height: 30 }} /></span>
             <span className="wc-title">Desde OneDrive</span>
             <span className="wc-desc">
               Descarga un Vault desde tu OneDrive y empieza a trabajar
@@ -242,7 +243,7 @@ export default function Welcome() {
     if (noClientId) {
       return (
         <div className="center-state">
-          <div className="cs-emoji">🔑</div>
+          <div className="cs-emoji"><KeyRound style={{ width: 44, height: 44 }} /></div>
           <h2>Client ID requerido</h2>
           <p className="muted" style={{ maxWidth: 380 }}>
             Antes de conectarte a OneDrive necesitas registrar una aplicación
@@ -258,7 +259,7 @@ export default function Welcome() {
 
     return (
       <div className="center-state">
-        <div className="cs-emoji">☁️</div>
+        <div className="cs-emoji"><Cloud style={{ width: 44, height: 44 }} /></div>
         <h2>Conectar con OneDrive</h2>
 
         {!device && (
@@ -315,7 +316,7 @@ export default function Welcome() {
   /* ---- Form view ---- */
   return (
     <div className="center-state">
-      <div className="cs-emoji">☁️</div>
+      <div className="cs-emoji"><Cloud style={{ width: 44, height: 44 }} /></div>
       <h2>Cargar Vault desde OneDrive</h2>
       {account && (
         <p className="muted" style={{ marginBottom: 20 }}>

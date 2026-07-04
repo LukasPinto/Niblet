@@ -8,7 +8,6 @@ import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
 import remarkRehype from "remark-rehype";
-import rehypeHighlight from "rehype-highlight";
 import rehypeStringify from "rehype-stringify";
 import type { NoteEntry } from "./tauri";
 import { loadImageDataUri } from "./imageCache";
@@ -16,6 +15,9 @@ import {
   decorateInternalLinks,
   preprocessWikilinks,
 } from "./linkParser";
+import { codeLanguageLabel } from "./codeLanguages";
+import { highlightCodeStatic } from "./codeStaticHighlight";
+import { leadingIndentLevel, INDENT_PX_PER_LEVEL } from "./blockParser";
 
 export type FrontmatterValue = string | string[];
 export type Frontmatter = Record<string, FrontmatterValue>;
@@ -113,11 +115,15 @@ export function stringifyFrontmatter(data: Frontmatter, content: string): string
   return `---\n${body}\n---\n\n${content.replace(/^\n+/, "")}`;
 }
 
+// El resaltado de sintaxis de los bloques de código se hace aparte, en
+// `highlightCodeBlocks`, reusando el mismo parser/estilo que Bloques (para
+// que ambas vistas se vean idénticas). remark-rehype ya etiqueta el `<code>`
+// con `language-xxx` a partir del fence, así que no hace falta un plugin de
+// highlighting aquí.
 const processor = unified()
   .use(remarkParse)
   .use(remarkGfm)
   .use(remarkRehype)
-  .use(rehypeHighlight, { detect: true, ignoreMissing: true })
   .use(rehypeStringify);
 
 /**
@@ -164,6 +170,18 @@ async function resolveImages(html: string, vaultPath: string): Promise<string> {
  * propio más laxo). Sustituimos ` ` por `%20` para que remark conserve la ruta
  * completa; `resolveImages`/`resolveNoteTarget` hacen `decodeURI` al leerla.
  */
+/** Convierte embeds Obsidian `![[ruta]]` / `![[ruta|alt]]` a imagen Markdown. */
+function preprocessObsidianImageEmbeds(md: string): string {
+  return md.replace(
+    /!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g,
+    (_full, path: string, alt?: string) => {
+      const src = path.trim().replace(/ /g, "%20");
+      const label = alt?.trim() ?? "";
+      return `![${label}](${src})`;
+    },
+  );
+}
+
 function encodeSpacesInLinkTargets(md: string): string {
   return md.replace(
     /(!?\[[^\]]*\]\()([^)]+)(\))/g,
@@ -264,14 +282,49 @@ function isTableSeparatorLine(line: string): boolean {
   return cells.length > 0 && cells.every((c) => /^\s*:?-+:?\s*$/.test(c));
 }
 
+/** Coincide con el marcador de divisor que usa la vista de Bloques (ver `blockToMarkdown`). */
+function isDividerLine(line: string): boolean {
+  return /^\s*(---|\*\*\*|___)\s*$/.test(line);
+}
+
+const LIST_LINE_RE = /^\s*([-*+]|\d+[.)])\s+/;
+const HEADING_LINE_RE = /^#{1,6}\s/;
+const QUOTE_LINE_RE = /^>\s?/;
+
 /**
- * Garantiza líneas en blanco alrededor de tablas y bloques de código cercados.
+ * Una línea "de contenido suelto": ni encabezado, lista, cita, divisor, fence
+ * ni fila de tabla. Incluye párrafos de texto y líneas que son solo una
+ * imagen `![]()`.
+ */
+function isPlainContentLine(line: string): boolean {
+  if (line.trim() === "") return false;
+  if (LIST_LINE_RE.test(line)) return false;
+  if (HEADING_LINE_RE.test(line)) return false;
+  if (QUOTE_LINE_RE.test(line)) return false;
+  if (isDividerLine(line)) return false;
+  if (/^\s*```/.test(line)) return false;
+  if (isTableRowLine(line) || isTableSeparatorLine(line)) return false;
+  return true;
+}
+
+/**
+ * Garantiza líneas en blanco alrededor de tablas, bloques de código cercados,
+ * divisores, y entre líneas de "contenido suelto" consecutivas.
  *
  * CommonMark exige una línea en blanco para separar una tabla (o fence) del
  * párrafo/lista anterior; si no, absorbe la tabla como texto de continuación
- * del último ítem (por eso una tabla pegada a una lista salía en crudo). La
- * vista de bloques serializa los bloques con un solo `\n`, así que aquí, solo
- * para la Vista, insertamos las líneas en blanco necesarias.
+ * del último ítem (por eso una tabla pegada a una lista salía en crudo). Con
+ * un divisor `---` el problema es peor: sin línea en blanco, CommonMark lo
+ * interpreta como el subrayado de un encabezado Setext y se COME tanto el
+ * divisor como el párrafo anterior (que pasa a ser un `<h2>`).
+ *
+ * Además, dos líneas de texto/imagen consecutivas sin línea en blanco son UN
+ * solo párrafo para CommonMark (continuación "perezosa"), pero en Bloques
+ * cada línea es su propio bloque con su propio margen — por eso una imagen
+ * seguida de texto (o de otra imagen) salía pegada en Vista y separada en
+ * Bloques. La vista de bloques no tiene el concepto de párrafo multilínea
+ * (salvo fences/tablas), así que aquí, solo para la Vista, insertamos las
+ * líneas en blanco necesarias para que cada línea sea su propio párrafo.
  */
 function separateBlockElements(md: string): string {
   const lines = md.split("\n");
@@ -315,9 +368,150 @@ function separateBlockElements(md: string): string {
       inTable = true;
       continue;
     }
+    if (isDividerLine(line)) {
+      ensureBlank();
+      out.push(line);
+      continue;
+    }
+    if (isPlainContentLine(line) && out.length && isPlainContentLine(out[out.length - 1])) {
+      out.push("");
+    }
     out.push(line);
   }
   return out.join("\n");
+}
+
+/** Línea que es únicamente una imagen `![alt](src)`, con indentación opcional. */
+const IMAGE_ONLY_LINE_RE = /^(\s*)(!\[[^\]]*\]\([^)]+\))\s*$/;
+
+/**
+ * Extrae, en orden de aparición, el nivel de indentación (mismo esquema que
+ * Bloques: `leadingIndentLevel`, 2 espacios por nivel) de cada línea que es
+ * solo una imagen suelta.
+ *
+ * CommonMark ignora hasta 3 espacios de indentación y convierte 4+ en un
+ * bloque de código indentado, así que no se puede indentar imágenes dejando
+ * los espacios en el markdown. Se extrae el nivel aquí, se quita la
+ * indentación antes de parsear (`stripImageLineIndent`) y se vuelve a aplicar
+ * como `padding-left` inline sobre el `<p>` resultante (`applyImageIndents`).
+ */
+function extractImageIndents(md: string): number[] {
+  const levels: number[] = [];
+  for (const line of md.split("\n")) {
+    const m = line.match(IMAGE_ONLY_LINE_RE);
+    if (m) levels.push(leadingIndentLevel(m[1]));
+  }
+  return levels;
+}
+
+function stripImageLineIndent(md: string): string {
+  return md
+    .split("\n")
+    .map((line) => {
+      const m = line.match(IMAGE_ONLY_LINE_RE);
+      return m ? m[2] : line;
+    })
+    .join("\n");
+}
+
+/**
+ * Aplica, en el mismo orden que `extractImageIndents`, el nivel de
+ * indentación como `padding-left` a cada `<p>` que contiene solo una imagen.
+ * `separateBlockElements` ya garantiza que cada imagen suelta cae en su
+ * propio `<p>` (nunca fusionada con texto u otra imagen).
+ */
+function applyImageIndents(html: string, levels: number[]): string {
+  if (levels.length === 0) return html;
+  let i = 0;
+  return html.replace(/<p>(\s*<img\b[^>]*>\s*)<\/p>/gi, (full, inner: string) => {
+    const level = levels[i];
+    i += 1;
+    if (!level) return full;
+    return `<p style="padding-left:${level * INDENT_PX_PER_LEVEL}px">${inner}</p>`;
+  });
+}
+
+const htmlCache = new Map<string, string>();
+const MAX_HTML_CACHE = 24;
+/** Incrementar al cambiar post-procesado HTML de la Vista. */
+const PREVIEW_HTML_VERSION = 8;
+
+function previewCacheKey(
+  content: string,
+  vaultPath?: string,
+  notes?: NoteEntry[],
+): string {
+  return `${PREVIEW_HTML_VERSION}\0${vaultPath ?? ""}\0${notes?.length ?? 0}\0${content}`;
+}
+
+function escapeHtmlText(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** Revierte el escapado HTML que aplica rehype-stringify al texto de un `<code>`. */
+function decodeHtmlEntities(s: string): string {
+  return s
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_m, d: string) => String.fromCodePoint(Number(d)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_m, h: string) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&amp;/g, "&"); // al final: evita descodificar entidades dentro de otras entidades
+}
+
+/** Versión de `String.replace` con una función de reemplazo asíncrona. */
+async function replaceAsync(
+  str: string,
+  regex: RegExp,
+  asyncFn: (match: RegExpMatchArray) => Promise<string>,
+): Promise<string> {
+  const matches = [...str.matchAll(regex)];
+  if (matches.length === 0) return str;
+  const replacements = await Promise.all(matches.map(asyncFn));
+  let result = "";
+  let lastIndex = 0;
+  matches.forEach((m, i) => {
+    result += str.slice(lastIndex, m.index);
+    result += replacements[i];
+    lastIndex = m.index! + m[0].length;
+  });
+  result += str.slice(lastIndex);
+  return result;
+}
+
+/**
+ * Resalta cada bloque de código con el mismo parser/estilo que usa Bloques
+ * (`highlightCodeStatic`, CodeMirror/Lezer) en vez del tema de highlight.js,
+ * para que ambas vistas se vean idénticas, y añade la cabecera (etiqueta de
+ * lenguaje + botón "Copiar") que ya tiene Bloques.
+ *
+ * Los hijos de `<pre>` se envuelven en un `<div class="md-code-body">` en vez
+ * de agregar un wrapper alrededor de `<pre>`: así `<pre>` sigue siendo el
+ * hermano directo que usan las reglas de margen de `.md-preview`
+ * (`p + pre`, `pre + h2`, …) y no se rompe el espaciado entre bloques.
+ */
+function highlightCodeBlocks(html: string): Promise<string> {
+  return replaceAsync(
+    html,
+    /<pre>\s*<code([^>]*)>([\s\S]*?)<\/code>\s*<\/pre>/gi,
+    async (m) => {
+      const attrs = m[1];
+      const rawBody = m[2];
+      const langMatch = /class="[^"]*language-([\w+-]+)/i.exec(attrs);
+      const lang = langMatch?.[1];
+      const text = decodeHtmlEntities(rawBody).replace(/\n+$/, "");
+      const label = escapeHtmlText(codeLanguageLabel(lang));
+      const highlighted = await highlightCodeStatic(text, lang);
+      const codeAttrs = lang ? ` class="language-${lang}"` : "";
+      const header =
+        `<div class="md-code-header" contenteditable="false">` +
+        `<span class="md-code-lang">${label}</span>` +
+        `<button type="button" class="md-code-copy-btn">Copiar</button>` +
+        `</div>`;
+      return `<pre>${header}<div class="md-code-body"><code${codeAttrs}>${highlighted}</code></div></pre>`;
+    },
+  );
 }
 
 /** Renderiza Markdown (sin frontmatter) a HTML. */
@@ -326,15 +520,30 @@ export async function renderMarkdown(
   vaultPath?: string,
   notes?: NoteEntry[],
 ): Promise<string> {
+  const cacheKey = previewCacheKey(content, vaultPath, notes);
+  const cached = htmlCache.get(cacheKey);
+  if (cached) return cached;
+
   let md = content.replace(/\r\n/g, "\n");
   md = normalizeListNesting(md);
   md = separateBlockElements(md);
+  md = preprocessObsidianImageEmbeds(md);
   if (notes?.length) md = preprocessWikilinks(md, notes);
   md = encodeSpacesInLinkTargets(md);
+  const imageIndents = extractImageIndents(md);
+  md = stripImageLineIndent(md);
   const file = await processor.process(md);
   let html = String(file);
+  html = applyImageIndents(html, imageIndents);
+  html = await highlightCodeBlocks(html);
   html = decorateInternalLinks(html);
   if (vaultPath) html = await resolveImages(html, vaultPath);
+
+  htmlCache.set(cacheKey, html);
+  if (htmlCache.size > MAX_HTML_CACHE) {
+    const oldest = htmlCache.keys().next().value;
+    if (oldest) htmlCache.delete(oldest);
+  }
   return html;
 }
 

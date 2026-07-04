@@ -46,6 +46,8 @@ const IMAGE_LINE_RE = /^(\s*)!\[([^\]]*)\]\(([^)]+)\)\s*$/;
 
 export const MAX_BLOCK_INDENT = 6;
 export const INDENT_SPACES_PER_LEVEL = 2;
+/** px por nivel de indentación en pantalla (Bloques y Vista deben coincidir). */
+export const INDENT_PX_PER_LEVEL = 22;
 
 let counter = 0;
 export function newBlockId(): string {
@@ -70,7 +72,15 @@ export function indentPrefix(level: number): string {
 }
 
 export function isIndentableBlockType(type: BlockType): boolean {
-  return type === "taskItem" || type === "bulletList" || type === "numberedList";
+  return (
+    type === "taskItem" ||
+    type === "bulletList" ||
+    type === "numberedList" ||
+    type === "image" ||
+    type === "table" ||
+    // En citas, indent = nivel de anidación (`> > …`), no espacios.
+    type === "quote"
+  );
 }
 
 export function emptyBlock(type: BlockType = "paragraph", indent = 0): Block {
@@ -198,6 +208,13 @@ export function markdownToBlocks(md: string): Block[] {
   while (i < lines.length) {
     const line = lines[i];
 
+    // Líneas en blanco separan bloques en Markdown pero no son contenido;
+    // crear párrafos vacíos aquí duplicaba el espaciado respecto a la Vista.
+    if (line.trim() === "") {
+      i += 1;
+      continue;
+    }
+
     // Bloque de código con fences ```
     const fence = line.match(/^\s*```(\S*)\s*$/);
     if (fence) {
@@ -235,11 +252,48 @@ export function markdownToBlocks(md: string): Block[] {
         id: newBlockId(),
         type: "table",
         text: "",
+        indent: leadingIndentLevel(line) || undefined,
         table: {
           rows: normalizeTableRows([header, ...body]),
           headerRow: true,
         },
       });
+      continue;
+    }
+
+    // Citas: consume el grupo de líneas `>` consecutivas. El nivel de
+    // anidación (número de `>`) va en `indent`; las líneas contiguas del mismo
+    // nivel forman UN bloque (texto con \n) y las líneas de cita en blanco
+    // (`>`) actúan como separador, igual que las líneas en blanco entre bloques.
+    if (line.startsWith(">")) {
+      let run: { level: number; texts: string[] } | null = null;
+      const flushQuote = () => {
+        if (!run) return;
+        blocks.push({
+          id: newBlockId(),
+          type: "quote",
+          text: run.texts.join("\n"),
+          indent: run.level || undefined,
+        });
+        run = null;
+      };
+      while (i < lines.length && lines[i].startsWith(">")) {
+        let rest = lines[i];
+        let level = -1;
+        while (rest.startsWith(">")) {
+          rest = rest.slice(1);
+          if (rest.startsWith(" ")) rest = rest.slice(1);
+          level += 1;
+        }
+        if (rest.trim() === "") flushQuote();
+        else if (run && run.level === level) run.texts.push(rest);
+        else {
+          flushQuote();
+          run = { level, texts: [rest] };
+        }
+        i += 1;
+      }
+      flushQuote();
       continue;
     }
 
@@ -284,8 +338,6 @@ export function markdownToBlocks(md: string): Block[] {
         text: m[2],
         indent: leadingIndentLevel(m[1]),
       };
-    } else if (/^>\s?/.test(line)) {
-      block = { id: newBlockId(), type: "quote", text: line.replace(/^>\s?/, "") };
     } else if (/^\s*(---|\*\*\*|___)\s*$/.test(line)) {
       block = { id: newBlockId(), type: "divider", text: "" };
     } else {
@@ -304,6 +356,44 @@ export function markdownToBlocks(md: string): Block[] {
   }
   if (blocks.length === 0) blocks.push(emptyBlock());
   return blocks;
+}
+
+const blocksCache = new Map<string, Block[]>();
+const MAX_BLOCKS_CACHE = 32;
+/** Incrementar al cambiar reglas de parseo para invalidar entradas antiguas. */
+const BLOCKS_CACHE_VERSION = 3;
+
+function blocksCacheKey(md: string): string {
+  return `${BLOCKS_CACHE_VERSION}\0${md}`;
+}
+
+/** Copia superficial de bloques para edición (no mutar la caché). */
+export function cloneBlocks(blocks: Block[]): Block[] {
+  return blocks.map((b) => ({
+    ...b,
+    table: b.table
+      ? { headerRow: b.table.headerRow, rows: b.table.rows.map((r) => [...r]) }
+      : undefined,
+  }));
+}
+
+/** Parsea markdown → bloques con caché por contenido (misma sesión). */
+export function getOrParseBlocks(md: string): Block[] {
+  const key = blocksCacheKey(md);
+  const hit = blocksCache.get(key);
+  if (hit) return hit;
+  const parsed = markdownToBlocks(md);
+  blocksCache.set(key, parsed);
+  if (blocksCache.size > MAX_BLOCKS_CACHE) {
+    const oldest = blocksCache.keys().next().value;
+    if (oldest) blocksCache.delete(oldest);
+  }
+  return parsed;
+}
+
+/** Precalienta la caché de bloques (p. ej. en idle al abrir una nota). */
+export function warmBlocksCache(md: string): void {
+  getOrParseBlocks(md);
 }
 
 /**
@@ -350,8 +440,15 @@ export function blockToMarkdown(b: Block, ordinal = 1): string {
       return `${pad}${ordinal}. ${b.text}`;
     case "taskItem":
       return `${pad}- [${b.checked ? "x" : " "}] ${b.text}`;
-    case "quote":
-      return `> ${b.text}`;
+    case "quote": {
+      // Un marcador `> ` por nivel de anidación, en cada línea del bloque.
+      // Las líneas vacías serializan como `>` (sin espacio colgante).
+      const marker = "> ".repeat((b.indent ?? 0) + 1);
+      return b.text
+        .split("\n")
+        .map((l) => (marker + l).replace(/[ \t]+$/, ""))
+        .join("\n");
+    }
     case "code": {
       const lang = b.language?.trim();
       const id = lang ? normalizeCodeLanguageId(lang) : "";
@@ -363,14 +460,14 @@ export function blockToMarkdown(b: Block, ordinal = 1): string {
       const normalized = normalizeTableRows(data.rows);
       const lines: string[] = [];
       if (data.headerRow && normalized.length > 0) {
-        lines.push(`| ${normalized[0].map(escapeTableCell).join(" | ")} |`);
-        lines.push(`| ${normalized[0].map(() => "---").join(" | ")} |`);
+        lines.push(`${pad}| ${normalized[0].map(escapeTableCell).join(" | ")} |`);
+        lines.push(`${pad}| ${normalized[0].map(() => "---").join(" | ")} |`);
         for (let r = 1; r < normalized.length; r++) {
-          lines.push(`| ${normalized[r].map(escapeTableCell).join(" | ")} |`);
+          lines.push(`${pad}| ${normalized[r].map(escapeTableCell).join(" | ")} |`);
         }
       } else {
         for (const row of normalized) {
-          lines.push(`| ${row.map(escapeTableCell).join(" | ")} |`);
+          lines.push(`${pad}| ${row.map(escapeTableCell).join(" | ")} |`);
         }
       }
       return lines.join("\n");
@@ -386,5 +483,22 @@ export function blockToMarkdown(b: Block, ordinal = 1): string {
 
 export function blocksToMarkdown(blocks: Block[]): string {
   const ordinals = computeOrderedOrdinals(blocks);
-  return blocks.map((b) => blockToMarkdown(b, ordinals.get(b.id))).join("\n");
+  const parts: string[] = [];
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    const prev = i > 0 ? blocks[i - 1] : null;
+    // Dos citas contiguas necesitan separador: sin él, al reparsear (y en la
+    // Vista) se fusionarían en una sola. Mismo nivel → línea en blanco (citas
+    // independientes). Nivel menor que el anterior → `>` (corta la
+    // continuación perezosa de CommonMark sin cerrar la cita exterior).
+    // Nivel mayor → nada: `> > …` tras `> …` anida dentro de la misma cita.
+    if (prev?.type === "quote" && b.type === "quote") {
+      const prevLevel = prev.indent ?? 0;
+      const level = b.indent ?? 0;
+      if (level === prevLevel) parts.push("");
+      else if (level < prevLevel) parts.push(">");
+    }
+    parts.push(blockToMarkdown(b, ordinals.get(b.id)));
+  }
+  return parts.join("\n");
 }

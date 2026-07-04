@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { FileText } from "lucide-react";
 import type { NoteEntry } from "../../lib/tauri";
 import {
   countWikilinkMatches,
@@ -80,7 +81,7 @@ export default function WikilinkSuggestPopover({
               onMouseEnter={() => onHoverIndex(i)}
               onClick={() => onSelect(note)}
             >
-              <span className="wikilink-picker-ico">🗓️</span>
+              <span className="wikilink-picker-ico"><FileText style={{ width: 16, height: 16 }} /></span>
               <span className="wikilink-picker-body">
                 <span className="wikilink-picker-title">{note.name}</span>
                 <span className="wikilink-picker-path">{noteBreadcrumb(note)}</span>

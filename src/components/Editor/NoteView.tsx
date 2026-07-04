@@ -2,6 +2,15 @@ import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useNotesStore } from "../../stores/notesStore";
 import { useTabsStore } from "../../stores/tabsStore";
 import { useVaultStore, type NoteEditorMode } from "../../stores/vaultStore";
+import {
+  CalendarDays,
+  Eye,
+  FileText,
+  Pencil,
+  Smile,
+  Table as TableIcon,
+  Tag,
+} from "lucide-react";
 import MarkdownEditor from "./MarkdownEditor";
 import BlockEditor from "./BlockEditor";
 import {
@@ -16,12 +25,54 @@ import {
   useNoteLinkInteractions,
   interceptPreviewLinkMouseDown,
 } from "../../hooks/useNoteLinkInteractions";
+import { prefetchMarkdownImages } from "../../lib/imageCache";
+import { warmBlocksCache } from "../../lib/blockParser";
 
-function PropRow({ icon, label, value }: { icon: string; label: string; value: React.ReactNode }) {
+function PropRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: React.ReactNode }) {
   return (
     <div className="prop">
       <span className="prop-k">{icon} {label}</span>
       <span className="prop-v">{value}</span>
+    </div>
+  );
+}
+
+function NoteModeSwitcher({
+  mode,
+  onModeChange,
+}: {
+  mode: NoteEditorMode;
+  onModeChange: (m: NoteEditorMode) => void;
+}) {
+  return (
+    <div className="seg" role="tablist" aria-label="Modo de edición">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={mode === "blocks"}
+        className={`seg-btn ${mode === "blocks" ? "active" : ""}`}
+        onClick={() => onModeChange("blocks")}
+      >
+        <TableIcon /> Bloques
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={mode === "edit"}
+        className={`seg-btn ${mode === "edit" ? "active" : ""}`}
+        onClick={() => onModeChange("edit")}
+      >
+        <Pencil /> Markdown
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={mode === "preview"}
+        className={`seg-btn ${mode === "preview" ? "active" : ""}`}
+        onClick={() => onModeChange("preview")}
+      >
+        <Eye /> Vista
+      </button>
     </div>
   );
 }
@@ -38,9 +89,12 @@ function NoteEditorInstance({ path }: { path: string }) {
   const mode = useVaultStore((s) => s.config.noteEditorMode);
   const vaultPath = useVaultStore((s) => s.vaultPath);
   const updateConfig = useVaultStore((s) => s.updateConfig);
-  const setMode = (m: NoteEditorMode) => updateConfig({ noteEditorMode: m });
+  const setMode = (m: NoteEditorMode) => {
+    void updateConfig({ noteEditorMode: m });
+  };
 
   const [html, setHtml] = useState("");
+  const previewKeyRef = useRef("");
   const isActive = activeTabId === noteTabId(path);
   const content = tab?.content ?? "";
   const dirty = tab?.dirty ?? false;
@@ -49,22 +103,68 @@ function NoteEditorInstance({ path }: { path: string }) {
     () => parseFrontmatter(content),
     [content],
   );
+  const dataRef = useRef(data);
+  dataRef.current = data;
+
+  const onBlockChange = useCallback(
+    (markdownBody: string) => {
+      setTabContent(path, stringifyFrontmatter(dataRef.current, markdownBody));
+    },
+    [path, setTabContent],
+  );
 
   const linkHover = useNoteLinkInteractions(entry?.rel_path ?? "");
 
+  // Precarga bloques e imágenes al abrir la nota (no en cada tecla).
   useEffect(() => {
-    if (!isActive || mode !== "preview") return;
+    if (!isActive || !vaultPath) return;
+    warmBlocksCache(body);
+    prefetchMarkdownImages(body, vaultPath);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al abrir/cambiar nota
+  }, [isActive, path, vaultPath]);
+
+  // Vista previa: precalentar en Bloques/Markdown; al abrir Vista ya está lista.
+  useEffect(() => {
+    if (!isActive) return;
+    const key = `${vaultPath ?? ""}\0${notes.length}\0${body}`;
+    if (previewKeyRef.current === key) return;
+
     let alive = true;
-    renderMarkdown(body, vaultPath ?? undefined, notes).then((h) => {
-      if (alive) setHtml(h);
-    });
+    const delay = mode === "preview" ? 0 : mode === "edit" ? 400 : 700;
+    const timer = window.setTimeout(() => {
+      renderMarkdown(body, vaultPath ?? undefined, notes).then((h) => {
+        if (!alive) return;
+        previewKeyRef.current = key;
+        setHtml(h);
+      });
+    }, delay);
+
     return () => {
       alive = false;
+      window.clearTimeout(timer);
     };
   }, [isActive, mode, body, vaultPath, notes]);
 
   const onPreviewClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      const copyBtn = (e.target as HTMLElement).closest<HTMLButtonElement>(".md-code-copy-btn");
+      if (copyBtn) {
+        e.preventDefault();
+        const code = copyBtn.closest("pre")?.querySelector("code");
+        if (!code) return;
+        navigator.clipboard
+          .writeText(code.textContent ?? "")
+          .then(() => {
+            const prev = copyBtn.textContent;
+            copyBtn.textContent = "✓ Copiado";
+            window.setTimeout(() => {
+              copyBtn.textContent = prev;
+            }, 1400);
+          })
+          .catch(() => {});
+        return;
+      }
+
       const anchor = (e.target as HTMLElement).closest("a");
       if (!anchor) return;
       const href = anchor.getAttribute("href");
@@ -110,7 +210,7 @@ function NoteEditorInstance({ path }: { path: string }) {
   return (
     <section className="view view-note">
       <article className="doc">
-        <div className="doc-icon">🗓️</div>
+        <div className="doc-icon"><CalendarDays style={{ width: 34, height: 34 }} /></div>
         <input
           className="doc-title"
           value={entry.name}
@@ -119,9 +219,9 @@ function NoteEditorInstance({ path }: { path: string }) {
         />
 
         <div className="props">
-          {data.fecha && <PropRow icon="📅" label="Fecha" value={displayValue(data.fecha)} />}
+          {data.fecha && <PropRow icon={<CalendarDays />} label="Fecha" value={displayValue(data.fecha)} />}
           <PropRow
-            icon="🏷️"
+            icon={<Tag />}
             label="Tags"
             value={
               tags.length ? (
@@ -135,60 +235,51 @@ function NoteEditorInstance({ path }: { path: string }) {
               )
             }
           />
-          {data.animo && <PropRow icon="😀" label="Ánimo" value={displayValue(data.animo)} />}
+          {data.animo && <PropRow icon={<Smile />} label="Ánimo" value={displayValue(data.animo)} />}
         </div>
 
-        <div className="seg" style={{ width: "fit-content", marginBottom: 16 }}>
-          <button
-            className={`seg-btn ${mode === "blocks" ? "active" : ""}`}
-            onClick={() => setMode("blocks")}
-          >
-            ⊞ Bloques
-          </button>
-          <button
-            className={`seg-btn ${mode === "edit" ? "active" : ""}`}
-            onClick={() => setMode("edit")}
-          >
-            ✎ Markdown
-          </button>
-          <button
-            className={`seg-btn ${mode === "preview" ? "active" : ""}`}
-            onClick={() => setMode("preview")}
-          >
-            👁 Vista
-          </button>
+        <div className="note-mode-inline" style={{ width: "fit-content", marginBottom: 16 }}>
+          <NoteModeSwitcher mode={mode} onModeChange={setMode} />
         </div>
 
-        {mode === "edit" && (
+        <div hidden={mode !== "edit"}>
           <MarkdownEditor
             value={content}
             noteRelPath={entry.rel_path}
             onChange={(c) => setTabContent(path, c)}
             onSave={() => saveTab(path)}
           />
-        )}
-        {mode === "blocks" && (
+        </div>
+
+        {isActive && (
           <BlockEditor
             content={body}
             noteKey={path}
             contentEpoch={tab.contentEpoch ?? 0}
-            onChange={(b) => setTabContent(path, stringifyFrontmatter(data, b))}
+            active={mode === "blocks"}
+            onChange={onBlockChange}
           />
         )}
-        {mode === "preview" && (
-          <div
-            className="md-preview"
-            dangerouslySetInnerHTML={{ __html: html }}
-            onClick={onPreviewClick}
-            onMouseDown={(e) =>
-              interceptPreviewLinkMouseDown(e, notes, entry.rel_path, openByRelPath)
-            }
-            onMouseOver={linkHover.onMouseOver}
-            onMouseMove={linkHover.onMouseMove}
-            onMouseOut={linkHover.onMouseOut}
-          />
-        )}
+
+        <div
+          hidden={mode !== "preview"}
+          className="md-preview"
+          aria-busy={mode === "preview" && !html}
+          dangerouslySetInnerHTML={{ __html: html }}
+          onClick={onPreviewClick}
+          onMouseDown={(e) =>
+            interceptPreviewLinkMouseDown(e, notes, entry.rel_path, openByRelPath)
+          }
+          onMouseOver={linkHover.onMouseOver}
+          onMouseMove={linkHover.onMouseMove}
+          onMouseOut={linkHover.onMouseOut}
+        />
       </article>
+      {isActive && (
+        <div className="note-mode-float">
+          <NoteModeSwitcher mode={mode} onModeChange={setMode} />
+        </div>
+      )}
     </section>
   );
 }
@@ -208,7 +299,7 @@ export default function NoteView() {
       return null;
     return (
       <div className="center-state">
-        <div className="cs-emoji">📝</div>
+        <div className="cs-emoji"><FileText style={{ width: 44, height: 44 }} /></div>
         <h2>Ninguna nota abierta</h2>
         <p className="muted">Abre una nota desde las carpetas del menú lateral o usa Ctrl+K.</p>
       </div>

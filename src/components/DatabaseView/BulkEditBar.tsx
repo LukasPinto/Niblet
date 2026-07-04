@@ -1,3 +1,4 @@
+import { X } from "lucide-react";
 import type { ColumnMeta } from "../../lib/database/fieldTypes";
 import { columnLabel } from "../../lib/database/types";
 import type { FieldType } from "../../lib/database/viewConfig";
@@ -109,7 +110,7 @@ export function BulkEditBar({
         Eliminar
       </button>
       <button type="button" className="db-bulk-dismiss" onClick={onClearSelection}>
-        ✕
+        <X style={{ width: 15, height: 15 }} />
       </button>
     </div>
   );

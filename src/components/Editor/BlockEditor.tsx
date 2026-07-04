@@ -1,11 +1,32 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, memo } from "react";
+import { flushSync } from "react-dom";
+import {
+  Code,
+  Heading1,
+  Heading2,
+  Heading3,
+  Image as ImageIcon,
+  Link2,
+  List,
+  ListChecks,
+  ListOrdered,
+  Minus,
+  Pilcrow,
+  Plus,
+  Quote,
+  Table as TableIcon,
+  Trash2,
+  TriangleAlert,
+  type LucideIcon,
+} from "lucide-react";
 import {
   type Block,
   type BlockType,
   type MarkdownShortcut,
   type TableData,
   BLOCK_TYPES,
-  markdownToBlocks,
+  cloneBlocks,
+  getOrParseBlocks,
   blocksToMarkdown,
   computeOrderedOrdinals,
   detectMarkdownShortcut,
@@ -14,6 +35,7 @@ import {
   newBlockId,
   isIndentableBlockType,
   MAX_BLOCK_INDENT,
+  INDENT_PX_PER_LEVEL,
 } from "../../lib/blockParser";
 import {
   detectMetaSuggest,
@@ -33,17 +55,20 @@ import {
 import TaskMetaSuggestPopover from "./TaskMetaSuggestPopover";
 import WikilinkSuggestPopover from "./WikilinkSuggestPopover";
 import CodeBlockView from "./CodeBlockView";
+import CodeLanguagePicker from "./CodeLanguagePicker";
 import TableBlockView from "./TableBlockView";
 import { useVaultStore } from "../../stores/vaultStore";
 import { useNotesStore } from "../../stores/notesStore";
 import { useSyncStore } from "../../stores/syncStore";
 import { savePastedImage, saveClipboardImage } from "../../lib/tauri";
-import { loadImageDataUri } from "../../lib/imageCache";
+import { loadImageDataUri, peekImageDataUri } from "../../lib/imageCache";
 import { buildNoteIndex, resolveNoteTarget } from "../../lib/linkParser";
+import { closeAllCodeLangPickers } from "../../lib/blockEditorMenus";
+import { decorateWikilinksInPlainText } from "../../lib/wikilinkDisplay";
 import { useNoteLinkInteractions } from "../../hooks/useNoteLinkInteractions";
 import { mimeToExt } from "../../lib/imageNames";
 import { normalizeCodeLanguageId } from "../../lib/codeLanguages";
-import { closeAllCodeLangPickers } from "../../lib/blockEditorMenus";
+import { highlightCodeStatic, peekHighlightedCode } from "../../lib/codeStaticHighlight";
 import {
   applyWikilinkSelection,
   detectWikilinkSuggest,
@@ -60,6 +85,8 @@ interface Props {
   noteKey: string;
   /** Incrementa cuando el contenido cambia externamente (p. ej. mover imagen). */
   contentEpoch?: number;
+  /** Vista Bloques visible: controla carga diferida de imágenes y sincronización. */
+  active?: boolean;
   onChange: (markdown: string) => void;
 }
 
@@ -120,7 +147,8 @@ type SlashEntry =
 
 interface FocusReq {
   id: string;
-  pos: "start" | "end";
+  /** Un número coloca el cursor en ese offset exacto (p. ej. tras fusionar bloques). */
+  pos: "start" | "end" | number;
   /** Texto a fijar imperativamente en el bloque antes de colocar el cursor.
    *  Necesario al crear/reutilizar un bloque con contenido y enfocarlo a la vez:
    *  el efecto de foco correría antes que la decoración y dejaría el DOM vacío. */
@@ -144,6 +172,27 @@ function canTurnInto(type: BlockType): boolean {
   return type !== "image" && type !== "table" && type !== "divider";
 }
 
+/** Icono (lucide) de cada tipo de bloque, para los menús "/" y "convertir en". */
+const BLOCK_TYPE_ICONS: Record<BlockType, LucideIcon> = {
+  paragraph: Pilcrow,
+  heading1: Heading1,
+  heading2: Heading2,
+  heading3: Heading3,
+  bulletList: List,
+  numberedList: ListOrdered,
+  taskItem: ListChecks,
+  quote: Quote,
+  code: Code,
+  table: TableIcon,
+  divider: Minus,
+  image: ImageIcon,
+};
+
+function blockTypeIcon(type: BlockType) {
+  const Icon = BLOCK_TYPE_ICONS[type];
+  return <Icon style={{ width: 16, height: 16 }} />;
+}
+
 function clampBlockMenuPosition(left: number, top: number): { left: number; top: number } {
   const width = 280;
   const margin = 8;
@@ -155,6 +204,218 @@ function clampBlockMenuPosition(left: number, top: number): { left: number; top:
 
 const DRAG_THRESHOLD = 5;
 const SLASH_PLACEHOLDER = "Escribe o pulsa '/' para comandos…";
+
+/** Tipos de bloque "de texto": pueden recortarse parcialmente y fusionarse al
+ *  borrar una selección nativa que los cruza. Código/imagen/divisor/tabla no. */
+const TEXT_LIKE_BLOCK_TYPES = new Set<BlockType>([
+  "paragraph",
+  "heading1",
+  "heading2",
+  "heading3",
+  "bulletList",
+  "numberedList",
+  "taskItem",
+  "quote",
+]);
+
+/** Offset en texto plano de `(node, offset)` dentro de `root`, ignorando el
+ *  marcado (spans de wikilinks, etc.) — igual que hace el navegador al medir
+ *  una selección con `Range.toString()`. */
+function plainTextOffsetWithin(root: Node, node: Node, offset: number): number {
+  const r = document.createRange();
+  r.selectNodeContents(root);
+  try {
+    r.setEnd(node, offset);
+  } catch {
+    return 0;
+  }
+  return r.toString().length;
+}
+
+/** Inverso de `plainTextOffsetWithin`: dado un offset de texto plano dentro de
+ *  `root`, ubica el nodo de texto real y el offset dentro de él. */
+function rangeBoundaryAtOffset(root: Node, offset: number): { node: Node; offset: number } {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let remaining = offset;
+  let last: Text | null = null;
+  let node = walker.nextNode() as Text | null;
+  while (node) {
+    if (remaining <= node.data.length) return { node, offset: remaining };
+    remaining -= node.data.length;
+    last = node;
+    node = walker.nextNode() as Text | null;
+  }
+  if (last) return { node: last, offset: last.data.length };
+  return { node: root, offset: 0 };
+}
+
+/**
+ * Bloque de código en modo solo-lectura: resalta con el mismo parser/estilo
+ * que CodeMirror pero sin montar un editor. El texto plano se ve al instante;
+ * el HTML resaltado se calcula perezosamente (solo si el bloque entra en
+ * viewport) para no trabar la apertura de notas con muchos bloques de código.
+ */
+function CodeBlockStatic({ text, language }: { text: string; language?: string }) {
+  const [html, setHtml] = useState<string | null>(() => peekHighlightedCode(text, language));
+  const hostRef = useRef<HTMLPreElement | null>(null);
+
+  useEffect(() => {
+    const cached = peekHighlightedCode(text, language);
+    if (cached) {
+      setHtml(cached);
+      return;
+    }
+    setHtml(null);
+    if (!language) return; // sin lenguaje elegido: no hay nada que resaltar
+
+    let alive = true;
+    let idleId: number | undefined;
+    const schedule = () => {
+      idleId =
+        typeof window.requestIdleCallback === "function"
+          ? window.requestIdleCallback(run, { timeout: 500 })
+          : window.setTimeout(run, 0);
+    };
+    const run = () => {
+      void highlightCodeStatic(text, language).then((h) => {
+        if (alive) setHtml(h);
+      });
+    };
+
+    const el = hostRef.current;
+    if (!el) {
+      schedule();
+      return () => {
+        alive = false;
+      };
+    }
+
+    const rect = el.getBoundingClientRect();
+    const inView = rect.bottom >= -400 && rect.top <= window.innerHeight + 400;
+    let io: IntersectionObserver | null = null;
+    if (inView) {
+      schedule();
+    } else {
+      io = new IntersectionObserver(
+        (entries) => {
+          if (entries.some((e) => e.isIntersecting)) {
+            io?.disconnect();
+            io = null;
+            schedule();
+          }
+        },
+        { rootMargin: "400px" },
+      );
+      io.observe(el);
+    }
+
+    return () => {
+      alive = false;
+      io?.disconnect();
+      if (idleId !== undefined) {
+        if (typeof window.cancelIdleCallback === "function") window.cancelIdleCallback(idleId);
+        else window.clearTimeout(idleId);
+      }
+    };
+  }, [text, language]);
+
+  return (
+    <pre className="code-block-static" ref={hostRef}>
+      {html !== null ? (
+        <code dangerouslySetInnerHTML={{ __html: html }} />
+      ) : (
+        text || " "
+      )}
+    </pre>
+  );
+}
+
+/** Vista estática de un bloque (solo lectura). Un textarea/CodeMirror se monta al activar. */
+function BlockDisplay({
+  block,
+  showSlashPlaceholder,
+  ordinal,
+  resolveWikiRel,
+  onActivate,
+  onToggleCheck,
+  onLanguageChange,
+  onDismissBlockMenus,
+}: {
+  block: Block;
+  showSlashPlaceholder: boolean;
+  ordinal?: number;
+  resolveWikiRel: (title: string) => string | null;
+  onActivate: (e: React.MouseEvent) => void;
+  onToggleCheck: (id: string) => void;
+  onLanguageChange: (id: string, language: string) => void;
+  onDismissBlockMenus: () => void;
+}) {
+  // No preventDefault/activate aquí: se difiere a mouseup (ver activateCandidateRef
+  // en BlockEditor) para no interceptar la selección nativa de texto al arrastrar.
+  const activate = onActivate;
+
+  const displayHtml = useMemo(() => {
+    if (showSlashPlaceholder && block.text === "") return null;
+    if (!block.text) return "\u00a0";
+    return decorateWikilinksInPlainText(block.text, resolveWikiRel);
+  }, [block.text, showSlashPlaceholder, resolveWikiRel]);
+
+  if (block.type === "code") {
+    return (
+      <div className="block block-code">
+        <CodeLanguagePicker
+          blockId={block.id}
+          value={normalizeCodeLanguageId(block.language ?? "")}
+          text={block.text}
+          onChange={(language) => onLanguageChange(block.id, language)}
+          onDismissBlockMenus={onDismissBlockMenus}
+        />
+        <div onMouseDown={activate}>
+          <CodeBlockStatic text={block.text} language={block.language} />
+        </div>
+      </div>
+    );
+  }
+
+  if (block.type === "taskItem") {
+    return (
+      <div className={`block block-task ${block.checked ? "checked" : ""}`}>
+        <span
+          className={`cb ${block.checked ? "checked" : ""}`}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleCheck(block.id);
+          }}
+        />
+        <div className="block-display" onMouseDown={activate}>
+          {displayHtml === null ? (
+            SLASH_PLACEHOLDER
+          ) : (
+            <span dangerouslySetInnerHTML={{ __html: displayHtml }} />
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`block block-${block.type}${showSlashPlaceholder && block.text === "" ? " block-display-ph" : ""}`}
+      data-indent={Math.min(block.indent ?? 0, 3)}
+      data-ord={block.type === "numberedList" ? ordinal ?? 1 : undefined}
+      onMouseDown={activate}
+    >
+      <div className="block-display">
+        {displayHtml === null ? (
+          SLASH_PLACEHOLDER
+        ) : (
+          <span dangerouslySetInnerHTML={{ __html: displayHtml }} />
+        )}
+      </div>
+    </div>
+  );
+}
 
 /** Bloques donde Enter inserta `\n` y Shift+Enter crea un bloque nuevo. */
 function supportsSoftNewline(type: BlockType): boolean {
@@ -175,14 +436,25 @@ function slashPlaceholderBlockId(blocks: Block[]): string | null {
   return null;
 }
 
-function TrashIcon() {
+function PlusIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M3 6h18" />
-      <path d="M8 6V4h8v2" />
-      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
-      <path d="M10 11v6" />
-      <path d="M14 11v6" />
+      <path d="M12 5v14" />
+      <path d="M5 12h14" />
+    </svg>
+  );
+}
+
+/** Rejilla de 6 puntos, como el asa de arrastre de Notion. */
+function DragDotsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor" stroke="none">
+      <circle cx="8" cy="5" r="1.5" />
+      <circle cx="16" cy="5" r="1.5" />
+      <circle cx="8" cy="12" r="1.5" />
+      <circle cx="16" cy="12" r="1.5" />
+      <circle cx="8" cy="19" r="1.5" />
+      <circle cx="16" cy="19" r="1.5" />
     </svg>
   );
 }
@@ -196,58 +468,97 @@ function TrashIcon() {
  * se cachea en `loadImageDataUri` para que scroll/re-render/reapertura sean
  * instantáneos.
  */
-function ImageBlockView({ src, alt }: { src: string; alt: string }) {
+function ImageBlockView({
+  src,
+  alt,
+  editorActive,
+}: {
+  src: string;
+  alt: string;
+  editorActive: boolean;
+}) {
   const vaultPath = useVaultStore((s) => s.vaultPath);
-  const [data, setData] = useState<string>("");
+  const absPath = vaultPath ? `${vaultPath}/${decodeURI(src)}` : "";
+  const [data, setData] = useState(() =>
+    absPath ? peekImageDataUri(absPath) ?? "" : "",
+  );
   const [failed, setFailed] = useState(false);
-  const [visible, setVisible] = useState(false);
-  const placeholderRef = useRef<HTMLSpanElement | null>(null);
+  const hostRef = useRef<HTMLSpanElement | null>(null);
 
   useEffect(() => {
-    if (visible) return;
-    const el = placeholderRef.current;
-    if (!el) return;
-    const io = new IntersectionObserver(
+    if (!absPath) return;
+    const cached = peekImageDataUri(absPath);
+    if (cached) {
+      setData(cached);
+      return;
+    }
+    if (!editorActive) return;
+
+    let alive = true;
+    let io: IntersectionObserver | null = null;
+
+    const startLoad = () => {
+      loadImageDataUri(absPath)
+        .then((uri) => {
+          if (alive) setData(uri);
+        })
+        .catch(() => {
+          if (alive) setFailed(true);
+        });
+    };
+
+    const el = hostRef.current;
+    if (!el) {
+      startLoad();
+      return () => {
+        alive = false;
+      };
+    }
+
+    const rect = el.getBoundingClientRect();
+    const inView = rect.bottom >= -400 && rect.top <= window.innerHeight + 400;
+    if (inView) {
+      startLoad();
+      return () => {
+        alive = false;
+      };
+    }
+
+    io = new IntersectionObserver(
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) {
-          setVisible(true);
-          io.disconnect();
+          io?.disconnect();
+          io = null;
+          startLoad();
         }
       },
       { rootMargin: "400px" },
     );
     io.observe(el);
-    return () => io.disconnect();
-  }, [visible]);
-
-  useEffect(() => {
-    if (!vaultPath || !visible) return;
-    let alive = true;
-    setFailed(false);
-    loadImageDataUri(`${vaultPath}/${decodeURI(src)}`)
-      .then((uri) => {
-        if (alive) setData(uri);
-      })
-      .catch(() => {
-        if (alive) setFailed(true);
-      });
     return () => {
       alive = false;
+      io?.disconnect();
     };
-  }, [vaultPath, src, visible]);
+  }, [absPath, editorActive]);
 
-  if (failed) return <span className="block-image-missing">⚠ No se encontró: {src}</span>;
-  if (!data)
+  if (failed)
     return (
-      <span ref={placeholderRef} className="block-image-loading muted">
+      <span className="block-image-missing">
+        <TriangleAlert style={{ width: 15, height: 15, verticalAlign: "-3px" }} /> No se encontró: {src}
+      </span>
+    );
+  if (!data) {
+    return (
+      <span ref={hostRef} className="block-image-loading muted">
         Cargando imagen…
       </span>
     );
+  }
   return <img className="block-image-img" src={data} alt={alt} draggable={false} />;
 }
 
-/** Una fila editable. Texto plano usa `<textarea>` para evitar bugs de cursor en Chrome. */
-function BlockRow({
+/** Una fila editable. Solo monta textarea/CodeMirror cuando `isEditing` (patrón Logseq). */
+const BlockRow = memo(function BlockRow({
   block,
   showSlashPlaceholder,
   registerRef,
@@ -258,7 +569,12 @@ function BlockRow({
   onLanguageChange,
   onTableChange,
   onDismissBlockMenus,
+  resolveWikiRel,
   ordinal,
+  editorActive,
+  isEditing,
+  onActivate,
+  onTextareaMouseDown,
 }: {
   block: Block;
   showSlashPlaceholder: boolean;
@@ -273,6 +589,10 @@ function BlockRow({
   onDismissBlockMenus: () => void;
   onWikilinkOpen: (title: string) => void;
   resolveWikiRel: (title: string) => string | null;
+  editorActive: boolean;
+  isEditing: boolean;
+  onActivate: (id: string, e: React.MouseEvent) => void;
+  onTextareaMouseDown: (e: React.MouseEvent<HTMLTextAreaElement>, block: Block) => void;
 }) {
   const ref = useRef<BlockInputEl | null>(null);
   const focusedRef = useRef(false);
@@ -281,21 +601,8 @@ function BlockRow({
     if (block.type === "image" || block.type === "divider" || block.type === "table") return;
     const el = ref.current;
     if (!(el instanceof HTMLTextAreaElement) || focusedRef.current) return;
-    if (el.value !== block.text) {
-      el.value = block.text;
-      autoResizeTextarea(el);
-    }
+    if (el.value !== block.text) el.value = block.text;
   }, [block.text, block.type]);
-
-  useEffect(() => {
-    if (block.type === "image" || block.type === "divider" || block.type === "table") return;
-    const el = ref.current;
-    if (el instanceof HTMLTextAreaElement) {
-      el.value = block.text;
-      autoResizeTextarea(el);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [block.id]);
 
   const setTextareaRef = (el: HTMLTextAreaElement | null) => {
     ref.current = el;
@@ -333,14 +640,40 @@ function BlockRow({
         ref={setDivRef}
         onKeyDown={(e) => onKeyDown(e, block)}
       >
-        <ImageBlockView src={block.text} alt={block.alt ?? ""} />
+        <ImageBlockView src={block.text} alt={block.alt ?? ""} editorActive={editorActive} />
       </div>
+    );
+  }
+
+  if (block.type === "table") {
+    return (
+      <TableBlockView
+        block={block}
+        onChange={onTableChange}
+        registerRef={registerRef}
+        onKeyDown={onKeyDown}
+      />
+    );
+  }
+
+  if (!isEditing) {
+    return (
+      <BlockDisplay
+        block={block}
+        showSlashPlaceholder={showSlashPlaceholder}
+        ordinal={ordinal}
+        resolveWikiRel={resolveWikiRel}
+        onActivate={(e) => onActivate(block.id, e)}
+        onToggleCheck={onToggleCheck}
+        onLanguageChange={onLanguageChange}
+        onDismissBlockMenus={onDismissBlockMenus}
+      />
     );
   }
 
   const editable = (
     <textarea
-      className={`block-edit be-${block.type}${showSlashPlaceholder ? "" : " no-ph"}`}
+      className={`block-edit${showSlashPlaceholder ? "" : " no-ph"}`}
       rows={1}
       ref={setTextareaRef}
       placeholder={showSlashPlaceholder ? SLASH_PLACEHOLDER : undefined}
@@ -356,6 +689,7 @@ function BlockRow({
         focusedRef.current = false;
       }}
       onKeyDown={(e) => onKeyDown(e, block)}
+      onMouseDown={(e) => onTextareaMouseDown(e, block)}
     />
   );
 
@@ -375,6 +709,7 @@ function BlockRow({
     return (
       <CodeBlockView
         block={block}
+        editorActive={editorActive}
         registerRef={registerRef}
         onInput={onInput}
         onCaretChange={onCaretChange}
@@ -383,10 +718,6 @@ function BlockRow({
         onDismissBlockMenus={onDismissBlockMenus}
       />
     );
-  }
-
-  if (block.type === "table") {
-    return <TableBlockView block={block} onChange={onTableChange} />;
   }
 
   return (
@@ -398,10 +729,19 @@ function BlockRow({
       {editable}
     </div>
   );
-}
+});
 
-export default function BlockEditor({ content, noteKey, contentEpoch = 0, onChange }: Props) {
-  const [blocks, setBlocks] = useState<Block[]>(() => markdownToBlocks(content));
+function BlockEditor({
+  content,
+  noteKey,
+  contentEpoch = 0,
+  active = true,
+  onChange,
+}: Props) {
+  const [blocks, setBlocks] = useState<Block[]>(() => cloneBlocks(getOrParseBlocks(content)));
+  const [editingBlockId, setEditingBlockId] = useState<string | null>(null);
+  const editingBlockIdRef = useRef<string | null>(null);
+  editingBlockIdRef.current = editingBlockId;
   const [slash, setSlash] = useState<SlashState | null>(null);
   const [metaSuggest, setMetaSuggest] = useState<MetaSuggestState | null>(null);
   const [wikiSuggest, setWikiSuggest] = useState<WikiSuggestState | null>(null);
@@ -415,8 +755,17 @@ export default function BlockEditor({ content, noteKey, contentEpoch = 0, onChan
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   // Hay un bloque enfocado (se está escribiendo). Oculta el añadir-bloque final.
   const [editing, setEditing] = useState(false);
+  // Hay una selección de texto nativa en curso dentro del editor: también oculta
+  // el añadir-bloque final para no estorbar al arrastrar una selección hasta él.
+  const [selecting, setSelecting] = useState(false);
+  const emitTimer = useRef<number | undefined>(undefined);
+  const emitPending = useRef(false);
   const blocksRef = useRef(blocks);
-  blocksRef.current = blocks;
+  const isTypingRef = useRef(false);
+  // Durante el tecleo el texto vive en el DOM/refs; no pisar con state stale.
+  if (!isTypingRef.current && !emitPending.current) {
+    blocksRef.current = blocks;
+  }
   // Puntero a la última `refreshEditing`; `commit` la usa aunque se defina antes.
   const refreshEditingRef = useRef<() => void>(() => {});
 
@@ -426,8 +775,6 @@ export default function BlockEditor({ content, noteKey, contentEpoch = 0, onChan
   // inmediato ante cambios estructurales, al perder foco y al desmontar.
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
-  const emitTimer = useRef<number | undefined>(undefined);
-  const emitPending = useRef(false);
 
   const vaultPath = useVaultStore((s) => s.vaultPath);
   const notes = useNotesStore((s) => s.notes);
@@ -459,7 +806,8 @@ export default function BlockEditor({ content, noteKey, contentEpoch = 0, onChan
       emitTimer.current = undefined;
     }
     emitPending.current = false;
-    setBlocks(markdownToBlocks(content));
+    setBlocks(cloneBlocks(getOrParseBlocks(content)));
+    setEditingBlockId(null);
     setSlash(null);
     setMetaSuggest(null);
     setWikiSuggest(null);
@@ -468,21 +816,37 @@ export default function BlockEditor({ content, noteKey, contentEpoch = 0, onChan
   }, [noteKey, contentEpoch]);
 
   useLayoutEffect(() => {
-    if (focusReq.current) {
-      const { id, pos, setText } = focusReq.current;
-      const el = refs.current.get(id);
-      if (el) {
-        if (setText !== undefined) setBlockText(el, setText);
-        placeBlockCaret(el, pos);
-      }
-      focusReq.current = null;
-    }
+    if (!focusReq.current) return;
+    const { id, pos, setText } = focusReq.current;
+    setEditingBlockId(id);
+    const el = refs.current.get(id);
+    if (!el) return;
+    if (setText !== undefined) setBlockText(el, setText);
+    if (typeof pos === "number") setBlockCaret(el, pos);
+    else placeBlockCaret(el, pos);
+    focusReq.current = null;
   });
 
-  const registerRef = useCallback((id: string, el: BlockInputEl | null) => {
-    if (el) refs.current.set(id, el);
-    else refs.current.delete(id);
+  const fulfillFocusReq = useCallback((id: string, el: BlockInputEl) => {
+    const req = focusReq.current;
+    if (!req || req.id !== id) return;
+    if (req.setText !== undefined) setBlockText(el, req.setText);
+    if (typeof req.pos === "number") setBlockCaret(el, req.pos);
+    else placeBlockCaret(el, req.pos);
+    focusReq.current = null;
   }, []);
+
+  const registerRef = useCallback(
+    (id: string, el: BlockInputEl | null) => {
+      if (el) {
+        refs.current.set(id, el);
+        fulfillFocusReq(id, el);
+      } else {
+        refs.current.delete(id);
+      }
+    },
+    [fulfillFocusReq],
+  );
 
   const syncBlocksFromRefs = useCallback((current: Block[]): Block[] => {
     return current.map((b) => {
@@ -494,6 +858,17 @@ export default function BlockEditor({ content, noteKey, contentEpoch = 0, onChan
       return { ...b, text: syncBlockTextFromRef(el, b.text) };
     });
   }, []);
+
+  const patchBlockText = useCallback((id: string, text: string) => {
+    blocksRef.current = blocksRef.current.map((b) =>
+      b.id === id ? { ...b, text } : b,
+    );
+  }, []);
+
+  const markdownFromRefs = useCallback(
+    () => blocksToMarkdown(syncBlocksFromRefs(blocksRef.current)),
+    [syncBlocksFromRefs],
+  );
 
   // Difunde el markdown al padre ya mismo, cancelando cualquier debounce pendiente.
   const emitNow = useCallback((markdown: string) => {
@@ -513,9 +888,9 @@ export default function BlockEditor({ content, noteKey, contentEpoch = 0, onChan
       emitTimer.current = undefined;
       if (!emitPending.current) return;
       emitPending.current = false;
-      onChangeRef.current(blocksToMarkdown(blocksRef.current));
+      onChangeRef.current(markdownFromRefs());
     }, 180);
-  }, []);
+  }, [markdownFromRefs]);
 
   // Vacía cualquier cambio pendiente (al perder foco / desmontar).
   const flushEmit = useCallback(() => {
@@ -523,20 +898,245 @@ export default function BlockEditor({ content, noteKey, contentEpoch = 0, onChan
       window.clearTimeout(emitTimer.current);
       emitTimer.current = undefined;
     }
-    if (!emitPending.current) return;
+    if (!emitPending.current && !isTypingRef.current) return;
     emitPending.current = false;
-    onChangeRef.current(blocksToMarkdown(blocksRef.current));
+    isTypingRef.current = false;
+    const synced = syncBlocksFromRefs(blocksRef.current);
+    blocksRef.current = synced;
+    onChangeRef.current(blocksToMarkdown(synced));
+    setBlocks(synced);
+  }, [syncBlocksFromRefs]);
+
+  const commitBlockDomText = useCallback((id: string) => {
+    const b = blocksRef.current.find((x) => x.id === id);
+    if (!b || b.type === "image" || b.type === "divider" || b.type === "table") return;
+    const el = refs.current.get(id);
+    const text = el ? syncBlockTextFromRef(el, b.text) : b.text;
+    patchBlockText(id, text);
+    let changed = false;
+    setBlocks((prev) => {
+      if (prev.find((x) => x.id === id)?.text === text) return prev;
+      changed = true;
+      return prev.map((x) => (x.id === id ? { ...x, text } : x));
+    });
+    if (changed) scheduleEmit();
+  }, [patchBlockText, scheduleEmit]);
+
+  const activateBlock = useCallback(
+    (id: string, pos: "start" | "end" = "end") => {
+      if (editingBlockId && editingBlockId !== id) {
+        commitBlockDomText(editingBlockId);
+      }
+      focusReq.current = { id, pos };
+      setEditingBlockId(id);
+    },
+    [editingBlockId, commitBlockDomText],
+  );
+
+  // Distingue clic de arrastre en bloques estáticos: el mousedown solo registra
+  // un candidato; si el mouseup llega cerca del punto inicial se activa el
+  // bloque (edición), si no, se deja que la selección nativa de texto ocurra.
+  const activateCandidateRef = useRef<{ id: string; x: number; y: number } | null>(null);
+  const beginActivateCandidate = useCallback((id: string, e: React.MouseEvent) => {
+    activateCandidateRef.current = { id, x: e.clientX, y: e.clientY };
   }, []);
+
+  useEffect(() => {
+    if (!active) return;
+    const onMouseUp = (e: MouseEvent) => {
+      const candidate = activateCandidateRef.current;
+      activateCandidateRef.current = null;
+      if (!candidate) return;
+      const dx = e.clientX - candidate.x;
+      const dy = e.clientY - candidate.y;
+      if (Math.hypot(dx, dy) > DRAG_THRESHOLD) return;
+      activateBlock(candidate.id);
+    };
+    document.addEventListener("mouseup", onMouseUp);
+    return () => document.removeEventListener("mouseup", onMouseUp);
+  }, [active, activateBlock]);
+
+  // Detecta una selección de texto nativa (no colapsada) dentro del editor para
+  // ocultar el botón "Añadir bloque" mientras se selecciona. La selección dentro
+  // de un textarea no aparece en window.getSelection(), pero ese caso ya está
+  // cubierto por `editing` (el bloque enfocado oculta el botón igualmente).
+  useEffect(() => {
+    if (!active) {
+      setSelecting(false);
+      return;
+    }
+    const onSelChange = () => {
+      const sel = window.getSelection();
+      const editor = editorRef.current;
+      const has =
+        !!sel &&
+        !sel.isCollapsed &&
+        !!editor &&
+        (editor.contains(sel.anchorNode) || editor.contains(sel.focusNode));
+      setSelecting(has);
+    };
+    document.addEventListener("selectionchange", onSelChange);
+    return () => {
+      document.removeEventListener("selectionchange", onSelChange);
+      setSelecting(false);
+    };
+  }, [active]);
+
+  // Un <textarea> nunca expone su selección interna a la Selection del
+  // documento, así que un arrastre que empieza dentro del bloque activo no
+  // puede extenderse por sí solo a otros bloques. Si el mousedown en el
+  // textarea deriva en arrastre (supera el umbral), lo convertimos a estático
+  // sobre la marcha y seguimos construyendo la selección nosotros mismos con
+  // `setBaseAndExtent`, igual que si el arrastre hubiese empezado en un bloque
+  // ya estático.
+  const manualDragRef = useRef<{
+    blockId: string;
+    downX: number;
+    downY: number;
+    anchorNode: Node;
+    anchorOffset: number;
+    converted: boolean;
+  } | null>(null);
+
+  const onTextareaMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLTextAreaElement>, block: Block) => {
+      const el = e.currentTarget;
+      manualDragRef.current = {
+        blockId: block.id,
+        downX: e.clientX,
+        downY: e.clientY,
+        anchorNode: el,
+        anchorOffset: el.selectionStart ?? 0,
+        converted: false,
+      };
+
+      const onMove = (ev: MouseEvent) => {
+        const drag = manualDragRef.current;
+        if (!drag) return;
+        if (!drag.converted) {
+          const dx = ev.clientX - drag.downX;
+          const dy = ev.clientY - drag.downY;
+          if (Math.hypot(dx, dy) <= DRAG_THRESHOLD) return;
+          const offset = el.selectionStart ?? 0;
+          flushSync(() => {
+            commitBlockDomText(drag.blockId);
+            setEditingBlockId((cur) => (cur === drag.blockId ? null : cur));
+          });
+          const displayRoot = editorRef.current?.querySelector<HTMLElement>(
+            `.block-row[data-block-id="${drag.blockId}"] .block-display`,
+          );
+          if (!displayRoot) {
+            manualDragRef.current = null;
+            return;
+          }
+          const anchor = rangeBoundaryAtOffset(displayRoot, offset);
+          drag.anchorNode = anchor.node;
+          drag.anchorOffset = anchor.offset;
+          drag.converted = true;
+        }
+        const point = document.caretRangeFromPoint?.(ev.clientX, ev.clientY);
+        if (!point) return;
+        window.getSelection()?.setBaseAndExtent(
+          drag.anchorNode,
+          drag.anchorOffset,
+          point.startContainer,
+          point.startOffset,
+        );
+      };
+
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        manualDragRef.current = null;
+      };
+
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    },
+    [commitBlockDomText],
+  );
 
   useEffect(() => () => flushEmit(), [flushEmit]);
 
-  // Cierra popovers del editor (menú bloque, /, sugerencias, selectores de lenguaje).
+  const wasActiveRef = useRef(active);
+  useEffect(() => {
+    if (!active) {
+      flushEmit();
+      setEditingBlockId(null);
+      setSlash(null);
+      setMetaSuggest(null);
+      setWikiSuggest(null);
+      setBlockMenu(null);
+      closeAllCodeLangPickers();
+      if (editorRef.current?.contains(document.activeElement)) {
+        (document.activeElement as HTMLElement)?.blur?.();
+      }
+      wasActiveRef.current = false;
+      return;
+    }
+    const justActivated = !wasActiveRef.current;
+    wasActiveRef.current = true;
+    if (!justActivated || emitPending.current) return;
+    const frame = window.requestAnimationFrame(() => {
+      const currentMd = blocksToMarkdown(syncBlocksFromRefs(blocksRef.current));
+      if (currentMd !== content) {
+        setBlocks(cloneBlocks(getOrParseBlocks(content)));
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [active, content, flushEmit, syncBlocksFromRefs]);
+
+  // useLayoutEffect (no useEffect): ajusta la altura ANTES de pintar. Si se
+  // hiciera después del pintado, el textarea nace con la altura por defecto
+  // del navegador y luego "salta" a la altura real, empujando visiblemente
+  // los bloques de abajo — justo el temblor sutil al entrar en edición.
+  // useLayoutEffect (no useEffect): ajusta la altura ANTES de pintar. `field-sizing:
+  // content` cubre esto en navegadores recientes, pero si el WebView2 instalado
+  // no lo soporta, el textarea nacería con la altura de una sola línea y
+  // "saltaría" a la altura real tras el pintado — el temblor sutil al entrar
+  // en edición que desplaza los bloques de abajo.
+  useLayoutEffect(() => {
+    if (!active || !editingBlockId) return;
+    const el = refs.current.get(editingBlockId);
+    if (el instanceof HTMLTextAreaElement) autoResizeTextarea(el);
+  }, [active, editingBlockId, blocks]);
+
+  useEffect(() => {
+    if (!active) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const t = e.target as HTMLElement;
+      if (editorRef.current?.contains(t)) return;
+      if (
+        t.closest(".block-picker") ||
+        t.closest(".code-lang-menu-portal") ||
+        t.closest(".task-meta-suggest-anchor")
+      ) {
+        return;
+      }
+      const id = editingBlockIdRef.current;
+      if (!id) return;
+      commitBlockDomText(id);
+      setEditingBlockId(null);
+      flushEmit();
+      // El blur nativo del textarea desmontado puede no disparar el `onBlur`
+      // del contenedor a tiempo: reevalúa `editing` explícitamente para que
+      // el botón "Añadir bloque" vuelva a mostrarse.
+      requestAnimationFrame(refreshEditingRef.current);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [active, commitBlockDomText, flushEmit]);
+
+  // Cierra popovers del editor (menú bloque, /, sugerencias). NO cierra los
+  // selectores de lenguaje: su único invocador es el propio botón del selector,
+  // que al abrirse ya cierra los *otros* con `closeAllCodeLangPickers(blockId)`.
+  // Si aquí cerrásemos todos (sin excluir), cerraríamos el que se acaba de abrir
+  // en el mismo click y el dropdown quedaría inservible tras la primera vez.
   const dismissBlockEditorMenus = useCallback(() => {
     setBlockMenu(null);
     setSlash(null);
     setMetaSuggest(null);
     setWikiSuggest(null);
-    closeAllCodeLangPickers();
   }, []);
 
   // Cierra el menú contextual del bloque al hacer clic fuera, pulsar Escape o scroll.
@@ -568,6 +1168,13 @@ export default function BlockEditor({ content, noteKey, contentEpoch = 0, onChan
 
   const commit = useCallback(
     (next: Block[]) => {
+      isTypingRef.current = false;
+      emitPending.current = false;
+      if (emitTimer.current !== undefined) {
+        window.clearTimeout(emitTimer.current);
+        emitTimer.current = undefined;
+      }
+      blocksRef.current = next;
       setBlocks(next);
       emitNow(blocksToMarkdown(next));
       // Reevalúa el estado de edición tras el re-render/foco. Necesario porque
@@ -936,13 +1543,14 @@ export default function BlockEditor({ content, noteKey, contentEpoch = 0, onChan
     setSlash(null);
     setMetaSuggest(null);
     setWikiSuggest(null);
+    const current = syncBlocksFromRefs(blocksRef.current);
 
     if (sc.type === "divider") {
-      const idx = blocks.findIndex((b) => b.id === id);
+      const idx = current.findIndex((b) => b.id === id);
       const el = refs.current.get(id);
       if (el) setBlockText(el, "");
       const trailing = emptyBlock("paragraph");
-      const next = blocks.map((b) =>
+      const next = current.map((b) =>
         b.id === id
           ? { ...b, type: "divider" as BlockType, text: "", checked: undefined, indent: undefined }
           : b,
@@ -955,7 +1563,7 @@ export default function BlockEditor({ content, noteKey, contentEpoch = 0, onChan
 
     const el = refs.current.get(id);
     if (el) setBlockText(el, sc.rest);
-    const next = blocks.map((b) =>
+    const next = current.map((b) =>
       b.id === id
         ? {
             ...b,
@@ -994,12 +1602,14 @@ export default function BlockEditor({ content, noteKey, contentEpoch = 0, onChan
   };
 
   const onInput = (id: string, el: BlockInputEl) => {
+    isTypingRef.current = true;
     const text = readBlockText(el);
+    const current = blocksRef.current;
     const slashActive = detectSlashCommand(text, getBlockCaret(el)) !== null;
 
     // Detección "en caliente" de Markdown: solo en párrafos y sin menú "/".
     if (!slashActive) {
-      const block = blocks.find((b) => b.id === id);
+      const block = current.find((b) => b.id === id);
       if (block?.type === "paragraph") {
         const sc = detectMarkdownShortcut(text);
         if (sc) {
@@ -1017,9 +1627,8 @@ export default function BlockEditor({ content, noteKey, contentEpoch = 0, onChan
       updateWikiSuggest(id, el);
       updateMetaSuggest(id, el);
     }
-    const next = blocks.map((b) => (b.id === id ? { ...b, text } : b));
-    setBlocks(next);
-    // Tecleo normal: difundimos con debounce para no re-renderizar toda la app.
+    patchBlockText(id, text);
+    // No setBlocks: el textarea es la fuente de verdad mientras se escribe.
     scheduleEmit();
   };
 
@@ -1033,11 +1642,13 @@ export default function BlockEditor({ content, noteKey, contentEpoch = 0, onChan
   };
 
   const insertAfter = (id: string, type: BlockType) => {
-    const idx = blocks.findIndex((b) => b.id === id);
-    const current = blocks[idx];
+    const synced = syncBlocksFromRefs(blocksRef.current);
+    const idx = synced.findIndex((b) => b.id === id);
+    if (idx < 0) return;
+    const current = synced[idx];
     const indent = isIndentableBlockType(type) ? (current?.indent ?? 0) : 0;
     const nb = emptyBlock(type, indent);
-    const next = [...blocks.slice(0, idx + 1), nb, ...blocks.slice(idx + 1)];
+    const next = [...synced.slice(0, idx + 1), nb, ...synced.slice(idx + 1)];
     focusReq.current = { id: nb.id, pos: "start" };
     commit(next);
   };
@@ -1067,7 +1678,8 @@ export default function BlockEditor({ content, noteKey, contentEpoch = 0, onChan
   };
 
   const adjustIndent = (id: string, delta: number) => {
-    const next = blocks.map((b) => {
+    const synced = syncBlocksFromRefs(blocksRef.current);
+    const next = synced.map((b) => {
       if (b.id !== id || !isIndentableBlockType(b.type)) return b;
       const level = Math.max(
         0,
@@ -1079,15 +1691,114 @@ export default function BlockEditor({ content, noteKey, contentEpoch = 0, onChan
   };
 
   const removeBlock = (id: string) => {
-    const idx = blocks.findIndex((b) => b.id === id);
-    if (blocks.length === 1) return;
-    const prev = blocks[idx - 1];
-    const nextBlock = blocks[idx + 1];
-    const next = blocks.filter((b) => b.id !== id);
+    const synced = syncBlocksFromRefs(blocksRef.current);
+    const idx = synced.findIndex((b) => b.id === id);
+    if (synced.length === 1) return;
+    const prev = synced[idx - 1];
+    const nextBlock = synced[idx + 1];
+    const next = synced.filter((b) => b.id !== id);
     if (prev) focusReq.current = { id: prev.id, pos: "end" };
     else if (nextBlock) focusReq.current = { id: nextBlock.id, pos: "start" };
     commit(next);
   };
+
+  // Borra una selección nativa (arrastre/teclado) que cruza uno o más bloques
+  // estáticos, al estilo Notion: bloques totalmente cubiertos desaparecen, los
+  // bloques de los extremos se recortan y, si ambos son de texto, se fusionan.
+  const deleteNativeSelection = useCallback((): boolean => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return false;
+    const root = editorRef.current;
+    if (!root) return false;
+    const range = sel.getRangeAt(0);
+    if (!root.contains(range.commonAncestorContainer)) return false;
+    // Evita actuar sobre una selección obsoleta si el foco saltó a otro control
+    // (p. ej. título de la nota) sin llegar a limpiar la Selection del documento.
+    const activeEl = document.activeElement;
+    if (activeEl && activeEl !== document.body && !root.contains(activeEl)) return false;
+
+    const rows = Array.from(root.querySelectorAll<HTMLElement>(".block-row[data-block-id]"));
+    const touchedRows = rows.filter((el) => range.intersectsNode(el));
+    if (touchedRows.length === 0) return false;
+
+    const synced = blocksRef.current;
+    const byId = new Map(synced.map((b) => [b.id, b]));
+    const touchedIds = touchedRows.map((el) => el.getAttribute("data-block-id")!);
+    const firstId = touchedIds[0];
+    const lastId = touchedIds[touchedIds.length - 1];
+    const firstBlock = byId.get(firstId);
+    const lastBlock = byId.get(lastId);
+    if (!firstBlock || !lastBlock) return false;
+
+    const firstRoot = touchedRows[0].querySelector(".block-display") ?? touchedRows[0];
+    const lastRoot =
+      touchedRows[touchedRows.length - 1].querySelector(".block-display") ??
+      touchedRows[touchedRows.length - 1];
+
+    const firstIsText = TEXT_LIKE_BLOCK_TYPES.has(firstBlock.type);
+    const lastIsText = TEXT_LIKE_BLOCK_TYPES.has(lastBlock.type);
+    const firstPrefix = firstIsText
+      ? firstBlock.text.slice(0, plainTextOffsetWithin(firstRoot, range.startContainer, range.startOffset))
+      : "";
+    const lastSuffix = lastIsText
+      ? lastBlock.text.slice(plainTextOffsetWithin(lastRoot, range.endContainer, range.endOffset))
+      : "";
+
+    const middleIds = new Set(touchedIds.slice(1, -1));
+    // Solo un bloque tocado, o ambos extremos son de texto: se fusionan en uno.
+    const merge = touchedIds.length === 1 || (firstIsText && lastIsText);
+
+    const next: Block[] = [];
+    for (const b of synced) {
+      if (b.id === firstId) {
+        if (merge) {
+          if (firstIsText) next.push({ ...b, text: firstPrefix + lastSuffix });
+          // si el primero no es de texto (p. ej. imagen) no hay nada que fusionar: se elimina
+        } else if (firstIsText) {
+          next.push({ ...b, text: firstPrefix });
+        }
+        continue;
+      }
+      if (middleIds.has(b.id)) continue;
+      if (b.id === lastId) {
+        if (touchedIds.length === 1 || merge) continue; // ya fusionado en el primero (o es el mismo bloque)
+        if (lastIsText) next.push({ ...b, text: lastSuffix });
+        continue;
+      }
+      next.push(b);
+    }
+    if (next.length === 0) next.push(emptyBlock("paragraph"));
+
+    // El cursor va al final del texto conservado del primer bloque si sobrevivió;
+    // si no, al inicio de lo conservado del último; si ninguno sobrevivió, al
+    // bloque anterior al primero tocado (o al primero restante, a falta de otro).
+    if (firstIsText) {
+      focusReq.current = { id: firstId, pos: firstPrefix.length };
+    } else if (lastIsText && lastId !== firstId) {
+      focusReq.current = { id: lastId, pos: 0 };
+    } else {
+      const firstTouchedIdx = synced.findIndex((b) => b.id === firstId);
+      const prevSurvivor = synced[firstTouchedIdx - 1];
+      if (prevSurvivor && next.some((b) => b.id === prevSurvivor.id)) {
+        focusReq.current = { id: prevSurvivor.id, pos: "end" };
+      } else if (next[0]) {
+        focusReq.current = { id: next[0].id, pos: "start" };
+      }
+    }
+
+    commit(next);
+    return true;
+  }, [commit]);
+
+  useEffect(() => {
+    if (!active) return;
+    const onKeyDownGlobal = (e: KeyboardEvent) => {
+      if (e.key !== "Backspace" && e.key !== "Delete") return;
+      if (deleteNativeSelection()) e.preventDefault();
+    };
+    document.addEventListener("keydown", onKeyDownGlobal);
+    return () => document.removeEventListener("keydown", onKeyDownGlobal);
+  }, [active, deleteNativeSelection]);
 
   const onToggleCheck = (id: string) => {
     const next = blocks.map((b) =>
@@ -1203,6 +1914,19 @@ export default function BlockEditor({ content, noteKey, contentEpoch = 0, onChan
       }
     }
 
+    // Escape sin ningún popover abierto: salir de la edición del bloque (perder
+    // el foco), dejándolo como vista estática. Los `return` de arriba ya cierran
+    // los menús /, wikilink y meta antes de llegar aquí.
+    if (e.key === "Escape") {
+      e.preventDefault();
+      commitBlockDomText(block.id);
+      setEditingBlockId(null);
+      (document.activeElement as HTMLElement | null)?.blur?.();
+      flushEmit();
+      requestAnimationFrame(refreshEditingRef.current);
+      return;
+    }
+
     if (e.key === "Tab") {
       if (isIndentableBlockType(block.type)) {
         e.preventDefault();
@@ -1212,7 +1936,17 @@ export default function BlockEditor({ content, noteKey, contentEpoch = 0, onChan
     }
 
     if (e.key === "Enter" && e.shiftKey) {
-      if (block.type === "code" || block.type === "divider") return;
+      // image/table no son campos de texto: `insertSoftNewline` haría
+      // `el.textContent = ...` sobre un nodo que React gestiona (la imagen o
+      // la tabla), corrompiéndolo fuera del reconciler.
+      if (
+        block.type === "code" ||
+        block.type === "divider" ||
+        block.type === "image" ||
+        block.type === "table"
+      ) {
+        return;
+      }
       if (supportsSoftNewline(block.type)) {
         e.preventDefault();
         insertAfter(block.id, "paragraph");
@@ -1243,9 +1977,16 @@ export default function BlockEditor({ content, noteKey, contentEpoch = 0, onChan
           block.type === "taskItem") &&
         text.trim() === ""
       ) {
-        const next = blocks.map((b) =>
+        const synced = syncBlocksFromRefs(blocksRef.current);
+        const next = synced.map((b) =>
           b.id === block.id
-            ? { ...b, type: "paragraph" as BlockType, checked: undefined, indent: undefined }
+            ? {
+                ...b,
+                type: "paragraph" as BlockType,
+                text: "",
+                checked: undefined,
+                indent: undefined,
+              }
             : b,
         );
         focusReq.current = { id: block.id, pos: "start" };
@@ -1260,9 +2001,13 @@ export default function BlockEditor({ content, noteKey, contentEpoch = 0, onChan
       return;
     }
 
-    if ((e.key === "Backspace" || e.key === "Delete") && block.type === "image") {
+    if ((e.key === "Backspace" || e.key === "Delete") && (block.type === "image" || block.type === "table")) {
       e.preventDefault();
-      removeBlock(block.id);
+      if ((block.indent ?? 0) > 0) {
+        adjustIndent(block.id, -1);
+      } else {
+        removeBlock(block.id);
+      }
       return;
     }
 
@@ -1290,9 +2035,15 @@ export default function BlockEditor({ content, noteKey, contentEpoch = 0, onChan
           removeBlock(block.id);
         } else if (atStart) {
           e.preventDefault();
-          const next = blocks.map((b) =>
+          const synced = syncBlocksFromRefs(blocksRef.current);
+          const next = synced.map((b) =>
             b.id === block.id
-              ? { ...b, type: "paragraph" as BlockType, checked: undefined, indent: undefined }
+              ? {
+                  ...b,
+                  type: "paragraph" as BlockType,
+                  checked: undefined,
+                  indent: undefined,
+                }
               : b,
           );
           focusReq.current = { id: block.id, pos: "start" };
@@ -1369,91 +2120,118 @@ export default function BlockEditor({ content, noteKey, contentEpoch = 0, onChan
   const placeholderBlockId = slashPlaceholderBlockId(blocks);
   const canDelete = blocks.length > 1;
 
+  const isBlockEditing = useCallback(
+    (blockId: string) => {
+      if (blockId === editingBlockId) return true;
+      return editingBlockId === null && active && blockId === placeholderBlockId;
+    },
+    [editingBlockId, active, placeholderBlockId],
+  );
+
   // Numeración de listas ordenadas: misma fuente que la serialización, para que
   // los números mostrados y los del markdown coincidan.
   const numberOrdinals = useMemo(() => computeOrderedOrdinals(blocks), [blocks]);
 
+  const renderBlockRow = (b: Block, index: number) => {
+    const isDragging = dragIndex === index;
+    const isDropBefore =
+      dropIndex === index && dragIndex !== null && dragIndex !== index;
+    const isEmptyParagraph =
+      b.type === "paragraph" && b.text === "" && b.id !== placeholderBlockId;
+    return (
+      <div
+        key={b.id}
+        data-block-id={b.id}
+        className={`block-row block-row-${b.type} ${isDragging ? "dragging" : ""} ${isDropBefore ? "drag-over" : ""} ${isEmptyParagraph ? "block-row-empty" : ""}`}
+        style={{ paddingLeft: (b.indent ?? 0) * INDENT_PX_PER_LEVEL }}
+        onContextMenuCapture={(e) => onBlockContextMenu(b.id, e)}
+      >
+        <div className="block-controls" contentEditable={false}>
+          <button
+            type="button"
+            className="block-ctl block-add-btn"
+            aria-label="Añadir bloque debajo"
+            title="Añadir bloque debajo"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => insertBlockBelow(b.id)}
+          >
+            <PlusIcon />
+          </button>
+          <span
+            className="block-ctl block-drag-handle"
+            aria-label="Mover bloque o clic para menú del bloque"
+            title="Arrastra para mover · clic para menú"
+            onContextMenu={(e) => e.preventDefault()}
+            onPointerDown={(e) => onHandlePointerDown(index, e)}
+            onPointerMove={onHandlePointerMove}
+            onPointerUp={onHandlePointerUp}
+          >
+            <DragDotsIcon />
+          </span>
+        </div>
+        <BlockRow
+          block={b}
+          showSlashPlaceholder={b.id === placeholderBlockId}
+          registerRef={registerRef}
+          onInput={onInput}
+          onCaretChange={onCaretChange}
+          onKeyDown={onKeyDown}
+          onToggleCheck={onToggleCheck}
+          onLanguageChange={onLanguageChange}
+          onTableChange={onTableChange}
+          onDismissBlockMenus={dismissBlockEditorMenus}
+          onWikilinkOpen={openWikilink}
+          resolveWikiRel={resolveWikiRel}
+          ordinal={numberOrdinals.get(b.id)}
+          editorActive={active}
+          isEditing={isBlockEditing(b.id)}
+          onActivate={beginActivateCandidate}
+          onTextareaMouseDown={onTextareaMouseDown}
+        />
+      </div>
+    );
+  };
+
   return (
     <div
-      className="block-editor"
+      className={`block-editor${active ? "" : " block-editor-dormant"}`}
       ref={editorRef}
+      hidden={!active}
       onPaste={onPaste}
       onFocus={refreshEditing}
       onBlur={() => {
-        flushEmit();
-        // El foco aún no se ha movido durante el blur: reevalúa en el próximo frame.
-        requestAnimationFrame(refreshEditing);
+        requestAnimationFrame(() => {
+          const activeEl = document.activeElement;
+          const leftEditor = !editorRef.current?.contains(activeEl);
+          if (leftEditor && editingBlockIdRef.current) {
+            commitBlockDomText(editingBlockIdRef.current);
+            setEditingBlockId(null);
+          }
+          flushEmit();
+          refreshEditing();
+        });
       }}
       onMouseOver={linkHover.onMouseOver}
       onMouseMove={linkHover.onMouseMove}
       onMouseOut={linkHover.onMouseOut}
     >
-      {blocks.map((b, index) => {
-        const isDragging = dragIndex === index;
-        const isDropBefore =
-          dropIndex === index && dragIndex !== null && dragIndex !== index;
-        const isEmptyParagraph =
-          b.type === "paragraph" && b.text === "" && b.id !== placeholderBlockId;
-        return (
-          <div
-            key={b.id}
-            className={`block-row block-row-${b.type} ${isDragging ? "dragging" : ""} ${isDropBefore ? "drag-over" : ""} ${isEmptyParagraph ? "block-row-empty" : ""}`}
-            style={{ paddingLeft: (b.indent ?? 0) * 22 }}
-            onContextMenuCapture={(e) => onBlockContextMenu(b.id, e)}
-          >
-            <span
-              className="block-drag-handle"
-              aria-label="Mover bloque o clic para menú del bloque"
-              title="Arrastra para mover · clic para menú · clic derecho en el bloque"
-              onContextMenu={(e) => e.preventDefault()}
-              onPointerDown={(e) => onHandlePointerDown(index, e)}
-              onPointerMove={onHandlePointerMove}
-              onPointerUp={onHandlePointerUp}
-            >
-              ⠿
-            </span>
-            {canDelete && (
-              <button
-                type="button"
-                className="block-delete-btn"
-                aria-label="Eliminar bloque"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => removeBlock(b.id)}
-              >
-                <TrashIcon />
-              </button>
-            )}
-            <BlockRow
-              block={b}
-              showSlashPlaceholder={b.id === placeholderBlockId}
-              registerRef={registerRef}
-              onInput={onInput}
-              onCaretChange={onCaretChange}
-              onKeyDown={onKeyDown}
-              onToggleCheck={onToggleCheck}
-              onLanguageChange={onLanguageChange}
-              onTableChange={onTableChange}
-              onDismissBlockMenus={dismissBlockEditorMenus}
-              onWikilinkOpen={openWikilink}
-              resolveWikiRel={resolveWikiRel}
-              ordinal={numberOrdinals.get(b.id)}
-            />
-          </div>
-        );
-      })}
+      {blocks.map((b, index) => renderBlockRow(b, index))}
 
-      {!editing && (
-        <button
-          type="button"
-          className="block-add-trailing"
-          aria-label="Añadir bloque"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={appendBlock}
-        >
-          <span className="block-add-trailing-plus">+</span>
-          Añadir bloque
-        </button>
-      )}
+      {/* Se oculta con `visibility` (no se desmonta) al editar: quitarlo del DOM
+          encogía el contenedor y desplazaba visiblemente el resto de bloques. */}
+      <button
+        type="button"
+        className="block-add-trailing"
+        aria-label="Añadir bloque"
+        aria-hidden={editing || selecting}
+        tabIndex={editing || selecting ? -1 : 0}
+        style={editing || selecting ? { visibility: "hidden" } : undefined}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={appendBlock}
+      >
+        <span className="block-add-trailing-plus">+</span>
+        Añadir bloque
+      </button>
 
       {slash && filteredSlashEntries.length > 0 && (
         <div
@@ -1482,7 +2260,13 @@ export default function BlockEditor({ content, noteKey, contentEpoch = 0, onChan
                     applySlashEntry(slash.blockId, t);
                   }}
                 >
-                  <span className="bp-ico">{t.icon}</span>
+                  <span className="bp-ico">
+                    {t.kind === "wikilink" ? (
+                      <Link2 style={{ width: 16, height: 16 }} />
+                    ) : (
+                      blockTypeIcon(t.type)
+                    )}
+                  </span>
                   <span className="bp-label">{t.label}</span>
                   <span className="bp-hint">{t.hint}</span>
                 </div>
@@ -1508,7 +2292,7 @@ export default function BlockEditor({ content, noteKey, contentEpoch = 0, onChan
                 insertBlockBelow(blockMenu.blockId);
               }}
             >
-              <span className="bp-ico">+</span>
+              <span className="bp-ico"><Plus style={{ width: 16, height: 16 }} /></span>
               <span className="bp-label">Insertar bloque debajo</span>
             </div>
             {canDelete && (
@@ -1519,7 +2303,7 @@ export default function BlockEditor({ content, noteKey, contentEpoch = 0, onChan
                   deleteBlockFromMenu(blockMenu.blockId);
                 }}
               >
-                <span className="bp-ico">🗑</span>
+                <span className="bp-ico"><Trash2 style={{ width: 16, height: 16 }} /></span>
                 <span className="bp-label">Eliminar bloque</span>
               </div>
             )}
@@ -1538,7 +2322,7 @@ export default function BlockEditor({ content, noteKey, contentEpoch = 0, onChan
                         convertType(blockMenu.blockId, t.type);
                       }}
                     >
-                      <span className="bp-ico">{t.icon}</span>
+                      <span className="bp-ico">{blockTypeIcon(t.type)}</span>
                       <span className="bp-label">{t.label}</span>
                       <span className="bp-hint">{isCurrent ? "Actual" : t.hint}</span>
                     </div>
@@ -1579,3 +2363,14 @@ export default function BlockEditor({ content, noteKey, contentEpoch = 0, onChan
     </div>
   );
 }
+
+function blockEditorPropsEqual(prev: Props, next: Props): boolean {
+  if (prev.noteKey !== next.noteKey) return false;
+  if (prev.contentEpoch !== next.contentEpoch) return false;
+  if (prev.active !== next.active) return false;
+  // Con Bloques activo ignoramos content del padre (emit debounced) para no re-renderizar.
+  if (next.active) return true;
+  return prev.content === next.content;
+}
+
+export default memo(BlockEditor, blockEditorPropsEqual);

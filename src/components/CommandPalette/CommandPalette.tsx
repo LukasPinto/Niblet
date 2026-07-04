@@ -1,4 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  CheckSquare,
+  Database,
+  FileText,
+  FileSignature,
+  Settings,
+  SunMoon,
+} from "lucide-react";
 import { useNotesStore } from "../../stores/notesStore";
 import { useTabsStore, noteTabId } from "../../stores/tabsStore";
 import { useUiStore } from "../../stores/uiStore";
@@ -6,7 +14,7 @@ import { useVaultStore } from "../../stores/vaultStore";
 
 interface PaletteItem {
   id: string;
-  icon: string;
+  icon: React.ReactNode;
   label: string;
   sub?: string;
   run: () => void;
@@ -39,13 +47,13 @@ export default function CommandPalette() {
 
   const items = useMemo<PaletteItem[]>(() => {
     const commands: PaletteItem[] = [
-      { id: "v-note", icon: "📝", label: "Ir al editor de notas", run: () => setView("note") },
-      { id: "v-tasks", icon: "✅", label: "Ir a mis tareas", run: () => void openTasksTab() },
-      { id: "v-base", icon: "🗂️", label: "Ir a la base de datos", run: () => void openDatabaseTab(null) },
-      { id: "v-settings", icon: "⚙️", label: "Abrir ajustes", run: () => setView("settings") },
+      { id: "v-note", icon: <FileSignature />, label: "Ir al editor de notas", run: () => setView("note") },
+      { id: "v-tasks", icon: <CheckSquare />, label: "Ir a mis tareas", run: () => void openTasksTab() },
+      { id: "v-base", icon: <Database />, label: "Ir a la base de datos", run: () => void openDatabaseTab(null) },
+      { id: "v-settings", icon: <Settings />, label: "Abrir ajustes", run: () => setView("settings") },
       {
         id: "c-theme",
-        icon: "🌗",
+        icon: <SunMoon />,
         label: "Cambiar tema claro/oscuro",
         run: () =>
           updateConfig({ theme: config.theme === "dark" ? "light" : "dark" }),
@@ -53,7 +61,7 @@ export default function CommandPalette() {
     ];
     const noteItems: PaletteItem[] = notes.map((n) => ({
       id: `n-${n.path}`,
-      icon: "📄",
+      icon: <FileText />,
       label: n.name,
       sub: n.folder || "raíz",
       run: async () => {
@@ -124,7 +132,7 @@ export default function CommandPalette() {
               onMouseEnter={() => setSel(i)}
               onClick={() => choose(item)}
             >
-              <span>{item.icon}</span>
+              <span className="pl-ico">{item.icon}</span>
               <span>{item.label}</span>
               {item.sub && <span className="pl-sub">{item.sub}</span>}
             </div>

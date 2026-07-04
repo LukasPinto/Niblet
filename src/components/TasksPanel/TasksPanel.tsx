@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState, type PointerEvent } from "react";
+import { FileText, LayoutList, Columns3 } from "lucide-react";
 import { useTasksStore } from "../../stores/tasksStore";
 import { useTabsStore } from "../../stores/tabsStore";
 import { useUiStore } from "../../stores/uiStore";
@@ -241,7 +242,7 @@ function KanbanMode() {
         >
           <div className="kan-card-ghost-title">{ghostTask.text}</div>
           <div className="kan-card-ghost-from">
-            📄 {sourceLabel(ghostTask.rel_path)}
+            <FileText style={{ width: 13, height: 13 }} /> {sourceLabel(ghostTask.rel_path)}
           </div>
         </div>
       )}
@@ -273,13 +274,13 @@ export default function TasksPanel() {
             className={`seg-btn ${mode === "list" ? "active" : ""}`}
             onClick={() => setMode("list")}
           >
-            ☰ Lista
+            <LayoutList /> Lista
           </button>
           <button
             className={`seg-btn ${mode === "kanban" ? "active" : ""}`}
             onClick={() => setMode("kanban")}
           >
-            ▤ Kanban
+            <Columns3 /> Kanban
           </button>
         </div>
       </div>

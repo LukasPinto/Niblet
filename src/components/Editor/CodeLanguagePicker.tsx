@@ -8,12 +8,15 @@ import {
   closeAllCodeLangPickers,
   registerCodeLangPicker,
 } from "../../lib/blockEditorMenus";
+import CodeCopyButton from "./CodeCopyButton";
 
 interface Props {
   value: string;
   onChange: (language: string) => void;
   /** Id del bloque de código (para cerrar otros selectores abiertos). */
   blockId: string;
+  /** Contenido del bloque, para el botón "Copiar". */
+  text: string;
   /** Cierra menús del BlockEditor (convertir, /, sugerencias…). */
   onDismissBlockMenus?: () => void;
 }
@@ -52,6 +55,7 @@ export default function CodeLanguagePicker({
   value,
   onChange,
   blockId,
+  text,
   onDismissBlockMenus,
 }: Props) {
   const [open, setOpen] = useState(false);
@@ -217,19 +221,18 @@ export default function CodeLanguagePicker({
           aria-haspopup="listbox"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => {
-            setOpen((v) => {
-              const next = !v;
-              if (next) {
-                closeAllCodeLangPickers(blockId);
-                onDismissBlockMenus?.();
-              }
-              return next;
-            });
+            const next = !open;
+            if (next) {
+              closeAllCodeLangPickers(blockId);
+              onDismissBlockMenus?.();
+            }
+            setOpen(next);
           }}
         >
           {codeLanguageLabel(value)}
           <span className="code-lang-chevron">{open ? "▴" : "▾"}</span>
         </button>
+        <CodeCopyButton text={text} />
       </div>
       {menu}
     </>

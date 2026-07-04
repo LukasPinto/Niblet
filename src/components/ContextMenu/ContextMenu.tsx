@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { FilePlus, FolderPlus, Trash2 } from "lucide-react";
 import { useUiStore } from "../../stores/uiStore";
 import { useNotesStore } from "../../stores/notesStore";
 
@@ -129,10 +130,10 @@ export default function ContextMenu() {
       ) : (
         <>
           <button className="ctx-item" onClick={() => setMode("note")}>
-            <span className="ctx-ico">📝</span> Nueva nota aquí
+            <span className="ctx-ico"><FilePlus /></span> Nueva nota aquí
           </button>
           <button className="ctx-item" onClick={() => setMode("folder")}>
-            <span className="ctx-ico">📁</span> Nueva carpeta
+            <span className="ctx-ico"><FolderPlus /></span> Nueva carpeta
           </button>
           {menu.itemType && (
             <>
@@ -141,7 +142,7 @@ export default function ContextMenu() {
                 className="ctx-item ctx-danger"
                 onClick={() => setMode("delete-confirm")}
               >
-                <span className="ctx-ico">🗑️</span> Eliminar{" "}
+                <span className="ctx-ico"><Trash2 /></span> Eliminar{" "}
                 {menu.itemType === "folder"
                   ? "carpeta"
                   : menu.itemType === "image"

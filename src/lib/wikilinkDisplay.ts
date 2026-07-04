@@ -10,13 +10,22 @@ export function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-// Formato inline que se renderiza en bloques no enfocados: código y negrita.
-// Cada chip guarda su markdown original en `data-md` para serializar sin
-// pérdidas. Se omite deliberadamente la itálica (`*` / `_`): estas notas están
-// llenas de `snake_case`, globs y comandos que darían falsos positivos.
-const INLINE_FMT_RE = /(`[^`\n]+?`)|(\*\*[^\n]+?\*\*)/g;
+// Formato inline que se renderiza en bloques no enfocados: código, negrita
+// (`**`/`__`), cursiva (`*`/`_`) y tachado (`~~`) — el mismo subconjunto que
+// muestra la Vista (remark + GFM). Cada chip guarda su markdown original en
+// `data-md` para serializar sin pérdidas. Los delimitadores con `_` exigen
+// límite de palabra (como CommonMark) para no romper snake_case, globs ni
+// comandos; `*`/`~~` exigen contenido sin espacio pegado al delimitador.
+const INLINE_FMT_RE =
+  /(`[^`\n]+?`)|(\*\*(?!\s)[^\n]+?(?<!\s)\*\*)|(?<![A-Za-z0-9_])(__(?!\s)[^\n]+?(?<!\s)__)(?![A-Za-z0-9_])|(\*(?![\s*])[^*\n]*?(?<![\s*])\*)|(?<![A-Za-z0-9_])(_(?![\s_])[^_\n]*?(?<![\s_])_)(?![A-Za-z0-9_])|(~~(?!\s)[^~\n]+?(?<!\s)~~)/g;
 
-/** Escapa y decora el formato inline (código, negrita) de un fragmento de texto. */
+function fmtChip(tag: string, cls: string, md: string, innerHtml: string): string {
+  return `<${tag} class="${cls}" contenteditable="false" data-md="${escapeHtml(md)}">${innerHtml}</${tag}>`;
+}
+
+/** Escapa y decora el formato inline de un fragmento de texto. Recursivo para
+ *  anidados tipo `_cursiva con **negrita**_` (el `data-md` externo conserva el
+ *  markdown completo, así que la serialización no depende de los chips internos). */
 function decorateInlineFormatting(seg: string): string {
   let out = "";
   let last = 0;
@@ -24,12 +33,18 @@ function decorateInlineFormatting(seg: string): string {
   let m: RegExpExecArray | null;
   while ((m = re.exec(seg)) !== null) {
     out += escapeHtml(seg.slice(last, m.index));
-    if (m[1] !== undefined) {
-      const inner = m[1].slice(1, -1);
-      out += `<code class="be-inline-code" contenteditable="false" data-md="${escapeHtml(m[1])}">${escapeHtml(inner)}</code>`;
+    const [, code, bold, boldU, em, emU, del] = m;
+    if (code !== undefined) {
+      out += fmtChip("code", "be-inline-code", code, escapeHtml(code.slice(1, -1)));
+    } else if (bold !== undefined || boldU !== undefined) {
+      const md = (bold ?? boldU) as string;
+      out += fmtChip("strong", "be-inline-bold", md, decorateInlineFormatting(md.slice(2, -2)));
+    } else if (em !== undefined || emU !== undefined) {
+      const md = (em ?? emU) as string;
+      out += fmtChip("em", "be-inline-em", md, decorateInlineFormatting(md.slice(1, -1)));
     } else {
-      const inner = m[2].slice(2, -2);
-      out += `<strong class="be-inline-bold" contenteditable="false" data-md="${escapeHtml(m[2])}">${escapeHtml(inner)}</strong>`;
+      const md = del as string;
+      out += fmtChip("del", "be-inline-del", md, decorateInlineFormatting(md.slice(2, -2)));
     }
     last = m.index + m[0].length;
   }
@@ -126,7 +141,7 @@ export function isTextNodesOnly(el: HTMLElement): boolean {
 export function editableDomNeedsFlatten(el: HTMLElement): boolean {
   if (isPlainTextDom(el)) return false;
   if (isTextNodesOnly(el)) return true;
-  if (el.querySelector(".block-wikilink, .be-inline-code, .be-inline-bold, br")) {
+  if (el.querySelector(".block-wikilink, .be-inline-code, .be-inline-bold, .be-inline-em, .be-inline-del, br")) {
     return true;
   }
   return [...el.childNodes].some(isEditableLineElement);

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Calendar, FileText, Flag } from "lucide-react";
 import { useTasksStore } from "../../stores/tasksStore";
 import { useTabsStore } from "../../stores/tabsStore";
 import { useUiStore } from "../../stores/uiStore";
@@ -113,7 +114,7 @@ export default function TaskCard({
   const metaContent = (
     <>
       <span className="t-from" draggable={false} onClick={goToSource}>
-        📄 {sourceLabel(task.rel_path)}
+        <FileText style={{ width: 13, height: 13 }} /> {sourceLabel(task.rel_path)}
       </span>
 
       <div className="task-shortcuts">
@@ -125,7 +126,7 @@ export default function TaskCard({
               draggable={false}
               onClick={openDate}
             >
-              📅
+              <Calendar style={{ width: 15, height: 15 }} />
             </button>
             {openPicker === "date" && (
               <TaskDatePicker
@@ -143,7 +144,7 @@ export default function TaskCard({
               draggable={false}
               onClick={openPriority}
             >
-              🚩
+              <Flag style={{ width: 15, height: 15 }} />
             </button>
             {openPicker === "priority" && (
               <TaskPriorityPicker
@@ -174,7 +175,7 @@ export default function TaskCard({
                 draggable={false}
                 onClick={openPriority}
               >
-                🚩 {prio.label}
+                <Flag style={{ width: 12, height: 12 }} /> {prio.label}
               </button>
             )}
           </div>

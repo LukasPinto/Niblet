@@ -1,3 +1,4 @@
+import { Calendar, ChevronDown, List, Type, type LucideIcon } from "lucide-react";
 import type { FrontmatterValue } from "../markdown";
 import { isDateLikeValue } from "./dates";
 import type { DatabaseRow } from "./types";
@@ -111,16 +112,17 @@ export function inferAllColumnMeta(
   return meta;
 }
 
-export function fieldTypeIcon(type: FieldType): string {
+/** Componente de icono (lucide) para cada tipo de campo. */
+export function fieldTypeIcon(type: FieldType): LucideIcon {
   switch (type) {
     case "select":
-      return "▾";
+      return ChevronDown;
     case "multi_select":
-      return "☰";
+      return List;
     case "date":
-      return "📅";
+      return Calendar;
     default:
-      return "Aa";
+      return Type;
   }
 }
 

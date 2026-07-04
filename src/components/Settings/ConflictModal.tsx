@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { TriangleAlert } from "lucide-react";
 import { useUiStore } from "../../stores/uiStore";
 import { useVaultStore } from "../../stores/vaultStore";
 import { useTasksStore } from "../../stores/tasksStore";
@@ -85,7 +86,9 @@ export default function ConflictModal() {
   return (
     <div className="modal-overlay" onClick={close}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>⚠️ Conflicto de sincronización</h2>
+        <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <TriangleAlert style={{ width: 20, height: 20, flex: "none" }} /> Conflicto de sincronización
+        </h2>
         <p className="muted">
           <code>{conflict.rel_path}</code> cambió en OneDrive desde la última vez
           que Niblet lo guardó. Elige qué versión conservar.

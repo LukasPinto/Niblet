@@ -1,4 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import {
+  CheckSquare,
+  FileText,
+  Image as ImageIcon,
+  Table as TableIcon,
+  X,
+} from "lucide-react";
 import { useNotesStore } from "../../stores/notesStore";
 import { useTabsStore, type EditorTab } from "../../stores/tabsStore";
 
@@ -26,11 +33,12 @@ function tabLabel(
   return notes.find((n) => n.path === tab.path)?.name ?? "Nota";
 }
 
-function tabIcon(kind: EditorTab["kind"]): string {
-  if (kind === "database") return "▦";
-  if (kind === "image") return "🖼️";
-  if (kind === "tasks") return "✅";
-  return "📄";
+function tabIcon(kind: EditorTab["kind"]) {
+  const style = { width: 14, height: 14 } as const;
+  if (kind === "database") return <TableIcon style={style} />;
+  if (kind === "image") return <ImageIcon style={style} />;
+  if (kind === "tasks") return <CheckSquare style={style} />;
+  return <FileText style={style} />;
 }
 
 const DRAG_THRESHOLD = 5;
@@ -220,7 +228,7 @@ export default function NoteTabBar() {
                   closeTab(tab.id);
                 }}
               >
-                ×
+                <X style={{ width: 13, height: 13 }} />
               </button>
             )}
           </div>

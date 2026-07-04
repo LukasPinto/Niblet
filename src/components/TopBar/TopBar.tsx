@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { CheckSquare, Table as TableIcon } from "lucide-react";
 import { useVaultStore, type AccentName } from "../../stores/vaultStore";
 import { useNotesStore } from "../../stores/notesStore";
 import { useTabsStore } from "../../stores/tabsStore";
@@ -170,14 +171,14 @@ export default function TopBar() {
             title="Tareas"
             onClick={() => void openTasksTab()}
           >
-            ☑
+            <CheckSquare />
           </button>
           <button
             className={`seg-btn ${editorActive && dbTabActive ? "active" : ""}`}
             title="Base de datos"
             onClick={() => void openDatabaseTab(null)}
           >
-            ▦
+            <TableIcon />
           </button>
         </div>
 

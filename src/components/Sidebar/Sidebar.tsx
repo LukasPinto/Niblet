@@ -6,6 +6,17 @@ import { useTabsStore } from "../../stores/tabsStore";
 import { useUiStore } from "../../stores/uiStore";
 import { getAccount } from "../../lib/onedrive";
 import { openDailyNote } from "../../lib/dailyNotes";
+import {
+  CalendarDays,
+  CheckSquare,
+  Database,
+  FilePlus,
+  FolderPlus,
+  FolderOpen,
+  Settings,
+  RefreshCw,
+  X,
+} from "lucide-react";
 import FolderTree from "./FolderTree";
 import CreateInVaultPopover from "./CreateInVaultPopover";
 
@@ -105,7 +116,7 @@ export default function Sidebar() {
                     void useVaultStore.getState().openVault();
                   }}
                 >
-                  📂 Abrir otro vault…
+                  <FolderOpen style={{ width: 16, height: 16 }} /> Abrir otro vault…
                 </button>
                 {recentVaults.filter((r) => r.path !== vaultPath).length > 0 && (
                   <>
@@ -143,7 +154,7 @@ export default function Sidebar() {
                     useVaultStore.getState().closeVault();
                   }}
                 >
-                  ✕ Cerrar vault
+                  <X style={{ width: 16, height: 16 }} /> Cerrar vault
                 </button>
               </div>
             </>
@@ -163,14 +174,14 @@ export default function Sidebar() {
           onClick={() => void openDailyNote()}
           title="Abrir nota de hoy (Ctrl+D)"
         >
-          <span className="ni-ico">📅</span>
+          <span className="ni-ico"><CalendarDays /></span>
           <span className="ni-label">Nota de hoy</span>
         </button>
         <button
           className={`nav-item ${view === "note" && activeTab?.kind === "tasks" ? "active" : ""}`}
           onClick={() => void openTasksTab()}
         >
-          <span className="ni-ico">✅</span>
+          <span className="ni-ico"><CheckSquare /></span>
           <span className="ni-label">Mis tareas</span>
           {pendingTasks > 0 && <span className="pill-count">{pendingTasks}</span>}
         </button>
@@ -178,7 +189,7 @@ export default function Sidebar() {
           className={`nav-item ${view === "note" && activeTab?.kind === "database" && activeTab.folder === null ? "active" : ""}`}
           onClick={() => openDatabaseTab(null)}
         >
-          <span className="ni-ico">🗂️</span>
+          <span className="ni-ico"><Database /></span>
           <span className="ni-label">Base de datos</span>
         </button>
 
@@ -197,7 +208,7 @@ export default function Sidebar() {
                   setCreateKind((k) => (k === "note" ? null : "note"))
                 }
               >
-                📝
+                <FilePlus style={{ width: 16, height: 16 }} />
               </button>
               <button
                 ref={folderBtnRef}
@@ -210,7 +221,7 @@ export default function Sidebar() {
                   setCreateKind((k) => (k === "folder" ? null : "folder"))
                 }
               >
-                📁
+                <FolderPlus style={{ width: 16, height: 16 }} />
               </button>
             </span>
           </div>
@@ -235,7 +246,7 @@ export default function Sidebar() {
           className={`nav-item ${view === "settings" ? "active" : ""}`}
           onClick={() => setView("settings")}
         >
-          <span className="ni-ico">⚙️</span>
+          <span className="ni-ico"><Settings /></span>
           <span className="ni-label">Ajustes</span>
         </button>
         <div className="sync-row">
@@ -256,7 +267,7 @@ export default function Sidebar() {
               onClick={() => runSync()}
               title="Sincronizar con OneDrive ahora"
             >
-              ↻
+              <RefreshCw style={{ width: 15, height: 15 }} />
             </button>
           )}
         </div>

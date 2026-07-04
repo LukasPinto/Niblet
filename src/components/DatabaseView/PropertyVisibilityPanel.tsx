@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Eye, EyeOff, GripVertical, SlidersHorizontal } from "lucide-react";
 import type { ColumnMeta } from "../../lib/database/fieldTypes";
 import { fieldTypeIcon, fieldTypeLabel } from "../../lib/database/fieldTypes";
 import { columnLabel } from "../../lib/database/types";
@@ -165,9 +166,14 @@ export function PropertyVisibilityPanel({
                       setDropIdx(null);
                     }}
                   >
-                    ⠿
+                    <GripVertical style={{ width: 15, height: 15 }} />
                   </span>
-                  <span className="db-prop-type">{fieldTypeIcon(meta?.type ?? "text")}</span>
+                  <span className="db-prop-type">
+                    {(() => {
+                      const TypeIcon = fieldTypeIcon(meta?.type ?? "text");
+                      return <TypeIcon style={{ width: 15, height: 15 }} />;
+                    })()}
+                  </span>
                   <span className="db-prop-name">{columnLabel(key)}</span>
                   <select
                     className="db-prop-type-select"
@@ -191,7 +197,11 @@ export function PropertyVisibilityPanel({
                     title={visible ? "Ocultar" : "Mostrar"}
                     onClick={() => onToggleHidden(key, visible)}
                   >
-                    {visible ? "👁" : "👁‍🗨"}
+                    {visible ? (
+                      <Eye style={{ width: 15, height: 15 }} />
+                    ) : (
+                      <EyeOff style={{ width: 15, height: 15 }} />
+                    )}
                   </button>
                 </div>
               );
@@ -211,7 +221,7 @@ export function PropertyVisibilityPanel({
           className="db-toolbar-btn"
           onClick={() => setOpen((v) => !v)}
         >
-          ⚙ Propiedades
+          <SlidersHorizontal style={{ width: 15, height: 15 }} /> Propiedades
         </button>
       </div>
       {menu}

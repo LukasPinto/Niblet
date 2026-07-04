@@ -53,7 +53,7 @@ export function setBlockCaret(el: BlockInputEl, offset: number): void {
     return;
   }
   if (el instanceof HTMLTextAreaElement) {
-    el.focus();
+    el.focus({ preventScroll: true });
     const pos = Math.min(Math.max(0, offset), el.value.length);
     el.setSelectionRange(pos, pos);
   } else {
@@ -73,11 +73,11 @@ export function placeBlockCaret(
     return;
   }
   if (el instanceof HTMLTextAreaElement) {
-    el.focus();
+    el.focus({ preventScroll: true });
     const p = pos === "start" ? 0 : el.value.length;
     el.setSelectionRange(p, p);
   } else {
-    el.focus();
+    el.focus({ preventScroll: true });
     const range = document.createRange();
     range.selectNodeContents(el);
     range.collapse(pos === "start");
@@ -87,8 +87,19 @@ export function placeBlockCaret(
   }
 }
 
-/** Ajusta la altura del textarea al contenido (multilínea). */
+/** ¿El WebView soporta `field-sizing: content`? (Chromium 123+). */
+const supportsFieldSizing =
+  typeof CSS !== "undefined" && CSS.supports("field-sizing", "content");
+
+/** Ajusta la altura del textarea al contenido (multilínea).
+ *
+ *  Con `field-sizing: content` (declarado en CSS) no se toca nada: el CSS
+ *  calcula la altura exacta (fraccionaria), idéntica a la del `.block-display`
+ *  estático. Fijarla por JS con `scrollHeight` la redondearía a píxeles
+ *  enteros y el bloque quedaría ~1px más alto/bajo que su vista estática,
+ *  desplazando todo lo de abajo al entrar/salir de edición. */
 export function autoResizeTextarea(ta: HTMLTextAreaElement): void {
+  if (supportsFieldSizing) return;
   ta.style.height = "auto";
   ta.style.height = `${ta.scrollHeight}px`;
 }

@@ -2,6 +2,32 @@
    Niblet — tokens de diseño
    Paletas neutras estilo Notion (oscuro / claro) + acentos
    ========================================================= */
+
+/* Fuentes empaquetadas (variables, subset latino) para verse igual en cualquier
+   equipo sin depender de que estén instaladas. Antes se pedía "Inter" pero, al
+   no estar cargada, Windows caía a Segoe UI y la app no se veía como Notion. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../assets/fonts/inter-latin-wght-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../assets/fonts/inter-latin-wght-italic.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url("../assets/fonts/jetbrains-mono-latin-wght-normal.woff2") format("woff2");
+}
+
 :root {
   --r: 6px;
   --r-sm: 4px;
@@ -61,6 +87,8 @@ body {
   background: var(--crust);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
   font-size: 14.5px;
   line-height: 1.55;
   overflow: hidden;

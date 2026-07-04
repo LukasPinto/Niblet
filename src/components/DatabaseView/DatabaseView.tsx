@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FileText, Image as ImageIcon } from "lucide-react";
 import { useNotesStore } from "../../stores/notesStore";
 import { useTabsStore, noteTabId } from "../../stores/tabsStore";
 import { useTasksStore } from "../../stores/tasksStore";
@@ -606,7 +607,7 @@ export function DatabaseViewPanel({ folder }: { folder: string | null }) {
                   className="db-image-row"
                   onClick={() => openImageTab(img.path)}
                 >
-                  <span className="row-ico">🖼️</span>
+                  <span className="row-ico"><ImageIcon style={{ width: 15, height: 15 }} /></span>
                   <span className="row-link">{label}</span>
                   <span className="muted db-img-folder">{img.folder || "raíz"}</span>
                 </div>
@@ -733,7 +734,7 @@ export function DatabaseViewPanel({ folder }: { folder: string | null }) {
                         className={`db-col-note${frozenClass(NOTE_COLUMN)}`}
                         style={frozenCellStyle(NOTE_COLUMN, NOTE_COL_WIDTH)}
                       >
-                        <span className="row-ico">🗓️</span>
+                        <span className="row-ico"><FileText style={{ width: 15, height: 15 }} /></span>
                         <span
                           className="row-link"
                           onClick={(e) => {

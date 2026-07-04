@@ -1,3 +1,10 @@
+import {
+  CalendarDays,
+  CheckSquare,
+  HardDrive,
+  Palette,
+  TriangleAlert,
+} from "lucide-react";
 import { useVaultStore, type AccentName } from "../../stores/vaultStore";
 import { useTasksStore } from "../../stores/tasksStore";
 import { useUiStore } from "../../stores/uiStore";
@@ -36,7 +43,7 @@ export default function Settings() {
         <OneDrivePanel />
 
         <div className="set-card">
-          <div className="set-title">🔄 Vault local</div>
+          <div className="set-title"><HardDrive /> Vault local</div>
           <div className="set-row">
             <span>Carpeta del Vault</span>
             <code className="val">{vaultPath}</code>
@@ -67,7 +74,7 @@ export default function Settings() {
         </div>
 
         <div className="set-card">
-          <div className="set-title">🎨 Apariencia</div>
+          <div className="set-title"><Palette /> Apariencia</div>
           <div className="set-row">
             <span>Tema</span>
             <button
@@ -99,7 +106,7 @@ export default function Settings() {
         </div>
 
         <div className="set-card">
-          <div className="set-title">📅 Notas diarias</div>
+          <div className="set-title"><CalendarDays /> Notas diarias</div>
           <div className="set-row">
             <span>Carpeta</span>
             <input
@@ -144,7 +151,7 @@ export default function Settings() {
         </div>
 
         <div className="set-card">
-          <div className="set-title">✅ Tareas</div>
+          <div className="set-title"><CheckSquare /> Tareas</div>
           <div className="set-row">
             <span>Sintaxis de fecha</span>
             <code>{config.taskSyntax.due} YYYY-MM-DD</code>
@@ -160,7 +167,7 @@ export default function Settings() {
         </div>
 
         <div className="set-card">
-          <div className="set-title">⚠️ Conflictos pendientes</div>
+          <div className="set-title"><TriangleAlert /> Conflictos pendientes</div>
           {conflicts.length === 0 ? (
             <p className="empty-hint">Todo sincronizado. No hay conflictos.</p>
           ) : (
