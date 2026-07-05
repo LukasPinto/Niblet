@@ -23,6 +23,10 @@ import { dailyNoteRelPath, isDailyNoteRel, sameRelPath } from "../../lib/dailyNo
 import { normalizePath } from "../../lib/tauri";
 import { useNotesStore } from "../../stores/notesStore";
 import { useTabsStore, noteTabId } from "../../stores/tabsStore";
+import {
+  activeTabHighlightEqual,
+  selectActiveTabHighlight,
+} from "../../stores/tabSelectors";
 import { useUiStore } from "../../stores/uiStore";
 import { useVaultStore } from "../../stores/vaultStore";
 import { useSyncStore } from "../../stores/syncStore";
@@ -324,8 +328,10 @@ export default function FolderTree() {
   const dailyNotesAutoReveal = useVaultStore(
     (s) => s.config.dailyNotesAutoReveal,
   );
-  const activeTabId = useTabsStore((s) => s.activeTabId);
-  const tabs = useTabsStore((s) => s.tabs);
+  const activeTab = useTabsStore(
+    (s) => selectActiveTabHighlight(s.tabs, s.activeTabId),
+    activeTabHighlightEqual,
+  );
   const openPreview = useTabsStore((s) => s.openPreview);
   const pinTab = useTabsStore((s) => s.pinTab);
   const openImageTab = useTabsStore((s) => s.openImageTab);
@@ -333,7 +339,6 @@ export default function FolderTree() {
   const openDatabaseTab = useTabsStore((s) => s.openDatabaseTab);
   const openContextMenu = useUiStore((s) => s.openContextMenu);
 
-  const activeTab = tabs.find((t) => t.id === activeTabId);
   const activeNotePathRaw =
     activeTab?.kind === "note" ? (activeTab.path ?? null) : null;
   const activeNotePath = activeNotePathRaw ? normalizePath(activeNotePathRaw) : null;

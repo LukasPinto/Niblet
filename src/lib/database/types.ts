@@ -17,8 +17,8 @@ export const CHECK_COLUMN = "__check__";
 export const DRAG_COL_WIDTH = 28;
 export const CHECK_COL_WIDTH = 36;
 
-export const DEFAULT_COL_WIDTH = 240;
-export const NOTE_COL_WIDTH = 180;
+export const DEFAULT_COL_WIDTH = 280;
+export const NOTE_COL_WIDTH = 240;
 export const TASKS_COL_WIDTH = 88;
 
 export const KNOWN_ORDER = ["fecha", "tags", "animo"];

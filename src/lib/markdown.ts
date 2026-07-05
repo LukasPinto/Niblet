@@ -268,6 +268,48 @@ function normalizeListNesting(md: string): string {
   return out.join("\n");
 }
 
+/**
+ * Centinela (carácter de uso privado, invisible e imposible en texto normal)
+ * que marca tareas "en progreso" a través del pipeline de remark.
+ */
+const DOING_TASK_SENTINEL = "\uE000";
+
+/**
+ * GFM solo reconoce `[ ]`/`[x]`, así que una tarea "en progreso" `- [/]`
+ * saldría como bullet con "[/]" literal. Se convierte aquí a `- [ ]` con un
+ * centinela delante del texto; `applyDoingTasks` lo retira del HTML final
+ * añadiendo la clase `task-doing` al ítem.
+ */
+function preprocessDoingTasks(md: string): string {
+  let inFence = false;
+  return md
+    .split("\n")
+    .map((line) => {
+      if (/^\s*```/.test(line)) {
+        inFence = !inFence;
+        return line;
+      }
+      if (inFence) return line;
+      const m = line.match(/^(\s*)-\s*\[\/\]\s+(.*)$/);
+      if (!m) return line;
+      return `${m[1]}- [ ] ${DOING_TASK_SENTINEL}${m[2]}`;
+    })
+    .join("\n");
+}
+
+/** Contraparte de `preprocessDoingTasks` sobre el HTML ya renderizado. */
+function applyDoingTasks(html: string): string {
+  if (!html.includes(DOING_TASK_SENTINEL)) return html;
+  return html
+    .replace(
+      // El centinela queda justo tras el checkbox (con <p> opcional en listas "loose").
+      /<li class="task-list-item">(\s*(?:<p>)?\s*<input[^>]*>\s*)\uE000/g,
+      '<li class="task-list-item task-doing">$1',
+    )
+    .split(DOING_TASK_SENTINEL)
+    .join("");
+}
+
 function isTableRowLine(line: string): boolean {
   const t = line.trim();
   return t.startsWith("|") && t.length > 1;
@@ -434,7 +476,7 @@ function applyImageIndents(html: string, levels: number[]): string {
 const htmlCache = new Map<string, string>();
 const MAX_HTML_CACHE = 24;
 /** Incrementar al cambiar post-procesado HTML de la Vista. */
-const PREVIEW_HTML_VERSION = 8;
+const PREVIEW_HTML_VERSION = 9;
 
 function previewCacheKey(
   content: string,
@@ -527,6 +569,7 @@ export async function renderMarkdown(
   let md = content.replace(/\r\n/g, "\n");
   md = normalizeListNesting(md);
   md = separateBlockElements(md);
+  md = preprocessDoingTasks(md);
   md = preprocessObsidianImageEmbeds(md);
   if (notes?.length) md = preprocessWikilinks(md, notes);
   md = encodeSpacesInLinkTargets(md);
@@ -534,6 +577,7 @@ export async function renderMarkdown(
   md = stripImageLineIndent(md);
   const file = await processor.process(md);
   let html = String(file);
+  html = applyDoingTasks(html);
   html = applyImageIndents(html, imageIndents);
   html = await highlightCodeBlocks(html);
   html = decorateInternalLinks(html);

@@ -53,6 +53,20 @@ export const listNotes = (vaultPath: string) =>
 
 export const readNote = (path: string) => invoke<string>("read_note", { path });
 
+export interface ContentMatch {
+  path: string;
+  rel_path: string;
+  name: string;
+  folder: string;
+  snippet: string;
+  modified: number;
+}
+
+export const searchNoteContents = (vaultPath: string, query: string) =>
+  invoke<ContentMatch[]>("search_note_contents", { vaultPath, query }).then(
+    (matches) => matches.map((m) => ({ ...m, path: normalizePath(m.path) })),
+  );
+
 export const writeNote = (path: string, content: string) =>
   invoke<void>("write_note", { path, content });
 

@@ -550,7 +550,7 @@ export function DatabaseViewPanel({ folder }: { folder: string | null }) {
   const editingMeta = editing ? columnMeta[editing.key] : undefined;
 
   return (
-    <section className="view view-base">
+    <section className="view view-database">
       <div className="tasks-head">
         <div>
           <h1>{displayTitle}</h1>

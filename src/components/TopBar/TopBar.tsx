@@ -1,8 +1,12 @@
 import { useMemo } from "react";
-import { CheckSquare, Table as TableIcon } from "lucide-react";
+import { CheckSquare, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Table as TableIcon } from "lucide-react";
 import { useVaultStore, type AccentName } from "../../stores/vaultStore";
 import { useNotesStore } from "../../stores/notesStore";
 import { useTabsStore } from "../../stores/tabsStore";
+import {
+  activeTabHighlightEqual,
+  selectActiveTabHighlight,
+} from "../../stores/tabSelectors";
 import { useUiStore, type ViewName } from "../../stores/uiStore";
 import {
   breadcrumbsForDatabase,
@@ -12,6 +16,7 @@ import {
   type BreadcrumbSegment,
 } from "../../lib/breadcrumbs";
 import { dailyNoteRelPath, openDailyNote, isDailyNoteRel, sameRelPath } from "../../lib/dailyNotes";
+import FloatingPanelShortcuts from "../RightPanel/FloatingPanelShortcuts";
 
 const ACCENTS: { name: AccentName; color: string }[] = [
   { name: "blue", color: "#2383e2" },
@@ -73,16 +78,27 @@ export default function TopBar() {
   const updateConfig = useVaultStore((s) => s.updateConfig);
   const view = useUiStore((s) => s.view);
   const setView = useUiStore((s) => s.setView);
+  const rightPanelOpen = useUiStore((s) => s.rightPanelOpen);
+  const toggleRightPanel = useUiStore((s) => s.toggleRightPanel);
+  const sidebarOpen = useUiStore((s) => s.sidebarOpen);
+  const toggleSidebar = useUiStore((s) => s.toggleSidebar);
   const openDatabaseTab = useTabsStore((s) => s.openDatabaseTab);
   const openImageTab = useTabsStore((s) => s.openImageTab);
   const openTasksTab = useTabsStore((s) => s.openTasksTab);
 
-  const activeTab = useTabsStore((s) => s.activeTab());
+  const activeTab = useTabsStore(
+    (s) => selectActiveTabHighlight(s.tabs, s.activeTabId),
+    activeTabHighlightEqual,
+  );
+  const activeNoteDirty = useTabsStore((s) => {
+    const tab = s.tabs.find((t) => t.id === s.activeTabId);
+    return tab?.kind === "note" ? !!tab.dirty : false;
+  });
   const notes = useNotesStore((s) => s.notes);
   const images = useNotesStore((s) => s.images);
   const openByRelPath = useNotesStore((s) => s.openByRelPath);
 
-  const dirty = activeTab?.kind === "note" ? (activeTab.dirty ?? false) : false;
+  const dirty = activeNoteDirty;
 
   const toggleTheme = () =>
     updateConfig({ theme: config.theme === "dark" ? "light" : "dark" });
@@ -148,13 +164,28 @@ export default function TopBar() {
 
   return (
     <header className="topbar" data-tauri-drag-region>
-      <BreadcrumbTrail
-        segments={segments}
-        dirty={view === "note" && activeTab?.kind === "note" && dirty}
-        onNavigate={onNavigate}
-      />
+      <div className="topbar-leading">
+        <div className="seg sb-topbar-toggle">
+          <button
+            type="button"
+            className={`seg-btn ${sidebarOpen ? "active" : ""}`}
+            title={sidebarOpen ? "Ocultar barra lateral" : "Mostrar barra lateral"}
+            aria-label={sidebarOpen ? "Ocultar barra lateral" : "Mostrar barra lateral"}
+            aria-expanded={sidebarOpen}
+            onClick={() => toggleSidebar()}
+          >
+            {sidebarOpen ? <PanelLeftClose /> : <PanelLeftOpen />}
+          </button>
+        </div>
+        <BreadcrumbTrail
+          segments={segments}
+          dirty={view === "note" && activeTab?.kind === "note" && dirty}
+          onNavigate={onNavigate}
+        />
+      </div>
 
       <div className="top-actions">
+        <FloatingPanelShortcuts />
         <div className="seg">
           <button
             className={`seg-btn ${onDailyNote ? "active" : ""}${todayDailyActive ? " daily-today-btn" : ""}`}
@@ -197,6 +228,19 @@ export default function TopBar() {
               onClick={() => updateConfig({ accent: a.name })}
             />
           ))}
+        </div>
+
+        <div className="seg rp-topbar-toggle">
+          <button
+            type="button"
+            className={`seg-btn ${rightPanelOpen ? "active" : ""}`}
+            title={rightPanelOpen ? "Ocultar panel" : "Mostrar panel"}
+            aria-label={rightPanelOpen ? "Ocultar panel derecho" : "Mostrar panel derecho"}
+            aria-expanded={rightPanelOpen}
+            onClick={() => toggleRightPanel()}
+          >
+            {rightPanelOpen ? <PanelRightClose /> : <PanelRightOpen />}
+          </button>
         </div>
       </div>
     </header>

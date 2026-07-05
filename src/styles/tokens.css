@@ -34,6 +34,10 @@
   --tr: 160ms cubic-bezier(0.2, 0.6, 0.2, 1);
   --font: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
   --mono: "JetBrains Mono", "Cascadia Code", ui-monospace, "Consolas", monospace;
+  /* Visto de los checkboxes: icono "check" de Lucide como máscara SVG.
+     Se centra con `mask: … center` (perfecto a cualquier escala) y toma el
+     color del `background` del ::after, así sigue tematizable. */
+  --tick-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
 }
 
 /* ---------- Tema oscuro ---------- */
@@ -81,6 +85,10 @@
 [data-accent="rose"]  { --accent: #c0392b; --accent-ink: #ffffff; }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
+/* Los <button> no heredan el color del documento (usan el ButtonText negro
+   del navegador): todo botón sin `color` propio mostraba sus iconos Lucide
+   (currentColor) negro sobre negro en el tema oscuro. */
+button { color: inherit; font-family: inherit; }
 html, body, #root { height: 100%; }
 body {
   font-family: var(--font);

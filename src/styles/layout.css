@@ -21,46 +21,81 @@
   border-radius: var(--r-sm);
 }
 
+/* Geometría del layout en :root (no en .app): la barra flotante de modos vive
+   en un portal colgado de <body>, fuera de .app, y necesita estas variables. */
+:root {
+  --sidebar-width: 268px;
+  --sidebar-hover-hit: 28px;
+  --topbar-height: 52px;
+  --tab-bar-height: 36px;
+  --sidebar-hover-top: var(--topbar-height);
+  --sidebar-inset-start: 0px;
+  --right-panel-width: 240px;
+  --main-inset-end: 0px;
+  /* Menú flotante Bloques / Markdown / Vista (portal en <body>). */
+  --note-mode-float-menu-h: 44px;
+  --note-mode-float-bottom: max(20px, env(safe-area-inset-bottom, 0px));
+  --note-mode-float-clearance: calc(
+    var(--note-mode-float-bottom) + var(--note-mode-float-menu-h) + 32px
+  );
+}
+:root:has(.app.sb-open) {
+  --sidebar-inset-start: var(--sidebar-width);
+}
+:root:has(.app.rp-open) {
+  --main-inset-end: var(--right-panel-width);
+}
+:root:has(.tab-bar-row) {
+  --sidebar-hover-top: calc(var(--topbar-height) + var(--tab-bar-height));
+}
 .app {
   display: grid;
-  grid-template-columns: 268px 1fr 18px;
+  grid-template-columns: 0px minmax(0, 1fr) 0px;
+  grid-template-rows: minmax(0, 1fr);
   height: 100vh;
   background: var(--base);
-  transition: grid-template-columns 200ms cubic-bezier(0.2, 0.6, 0.2, 1);
-  --sidebar-width: 268px;
-  --main-inset-end: 18px;
+  transition: grid-template-columns 220ms cubic-bezier(0.2, 0.6, 0.2, 1);
+}
+.app.sb-open {
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr) 0px;
 }
 .app.rp-open {
-  grid-template-columns: 268px 1fr 240px;
-  --main-inset-end: 240px;
+  grid-template-columns: 0px minmax(0, 1fr) var(--right-panel-width);
+}
+.app.sb-open.rp-open {
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--right-panel-width);
+}
+.sidebar-shell {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+  overflow: hidden;
+  height: 100%;
 }
 
 /* ============ RIGHT PANEL ============ */
-.right-panel {
+.right-panel-shell {
+  grid-column: 3;
+  grid-row: 1;
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
   background: var(--mantle);
   border-left: 1px solid var(--line);
+}
+.right-panel {
+  height: 100%;
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   min-height: 0;
   overflow: hidden;
+  background: var(--mantle);
 }
-.right-panel-toggle {
-  flex: none;
-  width: 18px;
-  height: 100%;
-  background: none;
-  border: 0;
-  border-right: 1px solid var(--line);
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 13px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: var(--tr);
+.rp-topbar-toggle { flex: none; }
+@media (max-width: 1100px) {
+  .rp-topbar-toggle { display: none; }
 }
-.right-panel-toggle:hover { color: var(--text); background: var(--surface); }
-.right-panel.open .right-panel-toggle { border-right-color: var(--line); }
 .right-panel-content {
   flex: 1;
   padding: 14px 12px;
@@ -80,6 +115,77 @@
   padding: 0 2px 6px;
   border-bottom: 1px solid var(--line);
 }
+
+/* Atajos flotantes (panel derecho plegado) */
+.rp-float-shortcuts .seg-btn { position: relative; }
+.rp-float-badge {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 20px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  pointer-events: none;
+}
+.seg-btn.active .rp-float-badge {
+  background: color-mix(in srgb, var(--accent-ink) 22%, var(--accent));
+  color: var(--accent-ink);
+}
+.rp-float-popover {
+  z-index: 2100;
+  background: var(--mantle);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: 0 8px 28px color-mix(in srgb, var(--crust) 45%, transparent);
+  display: flex;
+  flex-direction: column;
+  max-height: min(480px, 72vh);
+  overflow: hidden;
+  animation: fade 0.12s ease;
+}
+.rp-float-popover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  flex: none;
+}
+.rp-float-popover-close {
+  background: none;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--tr);
+}
+.rp-float-popover-close:hover {
+  color: var(--text);
+  background: var(--surface);
+}
+.rp-float-popover-body {
+  padding: 12px;
+  overflow-y: auto;
+  min-height: 0;
+}
+.rp-float-panel-inner { display: flex; flex-direction: column; gap: 8px; }
 
 /* ============ MINI CALENDAR ============ */
 .mini-cal { display: flex; flex-direction: column; gap: 8px; }
@@ -152,6 +258,26 @@
 }
 
 /* ============ SIDEBAR ============ */
+.sidebar-shell:not(.pinned) {
+  overflow: visible;
+}
+.sidebar-float-layer {
+  position: fixed;
+  left: 0;
+  top: var(--sidebar-hover-top);
+  bottom: 0;
+  z-index: 36;
+  width: var(--sidebar-hover-hit);
+  pointer-events: auto;
+  transition:
+    width 220ms cubic-bezier(0.2, 0.6, 0.2, 1),
+    top 220ms cubic-bezier(0.2, 0.6, 0.2, 1);
+}
+.sidebar-float-layer.peek {
+  top: 0;
+  width: var(--sidebar-width);
+  pointer-events: none;
+}
 .sidebar {
   background: var(--mantle);
   border-right: 1px solid var(--line);
@@ -160,7 +286,43 @@
   padding: 14px 12px;
   gap: 14px;
   min-height: 0;
+  height: 100%;
+  overflow: hidden;
 }
+.sidebar-shell.pinned .sidebar {
+  min-width: var(--sidebar-width);
+  width: 100%;
+}
+.sidebar-shell:not(.pinned) .sidebar.floating {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 35;
+  width: var(--sidebar-width);
+  transform: translateX(calc(-100% - 8px));
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    transform 220ms cubic-bezier(0.2, 0.6, 0.2, 1),
+    opacity 180ms cubic-bezier(0.2, 0.6, 0.2, 1),
+    visibility 0s linear 220ms;
+  box-shadow:
+    8px 0 32px color-mix(in srgb, var(--crust) 55%, transparent),
+    1px 0 0 var(--line);
+  pointer-events: none;
+}
+.sidebar-shell:not(.pinned).peek .sidebar.floating {
+  transform: translateX(0);
+  opacity: 1;
+  visibility: visible;
+  transition:
+    transform 220ms cubic-bezier(0.2, 0.6, 0.2, 1),
+    opacity 180ms cubic-bezier(0.2, 0.6, 0.2, 1),
+    visibility 0s linear 0s;
+  pointer-events: auto;
+}
+.sb-topbar-toggle { flex: none; }
 .vault { display: flex; align-items: center; gap: 10px; padding: 4px 6px; }
 .vault-badge {
   width: 34px;
@@ -547,6 +709,8 @@
 
 /* ============ MAIN ============ */
 .main {
+  grid-column: 2;
+  grid-row: 1;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -559,10 +723,22 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   padding: 0 18px;
   border-bottom: 1px solid var(--line);
   background: color-mix(in srgb, var(--base) 80%, transparent);
   backdrop-filter: blur(8px);
+}
+.topbar-leading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+.topbar-leading .crumbs {
+  flex: 1;
+  min-width: 0;
 }
 .macos .topbar {
   padding-left: 80px; /* espacio para semáforos macOS */
@@ -745,7 +921,8 @@
   /* Canalón izquierdo más ancho: reserva sitio en el margen para los controles
      de bloque [＋][⠿] (estilo Notion). Se aplica a todo el .doc, así Bloques y
      Vista comparten el mismo borde izquierdo y siguen alineados entre sí. */
-  padding: 36px 32px 36px 56px;
+  /* Espacio inferior para poder hacer scroll más allá del menú flotante de modos. */
+  padding: 36px 32px var(--note-mode-float-clearance) 56px;
 }
 @media (max-width: 760px) {
   .view-note { padding-left: 40px; }
@@ -781,10 +958,10 @@
 /* Selector de modo flotante (Bloques / Markdown / Vista) */
 .note-mode-float {
   position: fixed;
-  bottom: max(20px, env(safe-area-inset-bottom, 0px));
+  bottom: var(--note-mode-float-bottom);
   left: calc(
-    var(--sidebar-width) +
-    (100vw - var(--sidebar-width) - var(--main-inset-end)) / 2
+    var(--sidebar-inset-start) +
+    (100vw - var(--sidebar-inset-start) - var(--main-inset-end)) / 2
   );
   transform: translateX(-50%);
   z-index: 60;
@@ -818,7 +995,13 @@
 .cm-gutters { background: transparent !important; border: 0 !important; color: var(--muted); }
 .cm-activeLine { background: color-mix(in srgb, var(--surface) 40%, transparent) !important; }
 .cm-activeLineGutter { background: transparent !important; }
-.cm-cursor { border-left-color: var(--accent) !important; }
+/* Caret del editor Markdown (CodeMirror): color explícito en tema oscuro; solo
+   `border-left-color` con --accent no basta en WebView2 y el cursor queda negro. */
+.cm-editor .cm-content { caret-color: var(--text); }
+.cm-editor .cm-cursor,
+.cm-editor .cm-dropCursor {
+  border-left: 2px solid var(--text) !important;
+}
 .cm-selectionBackground,
 .cm-editor ::selection { background: color-mix(in srgb, var(--accent) 28%, transparent) !important; }
 
@@ -864,6 +1047,16 @@
   margin: var(--flow-gap-paragraph) 0;
   padding-left: 22px;
 }
+/* Listas ordenadas anidadas: número → letra → romano, y vuelve a empezar. */
+.md-preview ol { list-style-type: decimal; }
+.md-preview ol ol { list-style-type: lower-alpha; }
+.md-preview ol ol ol { list-style-type: lower-roman; }
+.md-preview ol ol ol ol { list-style-type: decimal; }
+.md-preview ol ol ol ol ol { list-style-type: lower-alpha; }
+.md-preview ol ol ol ol ol ol { list-style-type: lower-roman; }
+.md-preview ol ol ol ol ol ol ol { list-style-type: decimal; }
+.md-preview ol ol ol ol ol ol ol ol { list-style-type: lower-alpha; }
+.md-preview ol ol ol ol ol ol ol ol ol { list-style-type: lower-roman; }
 /* Sublistas: sin hueco extra respecto al ítem padre (como bloques con indent). */
 .md-preview li > ul,
 .md-preview li > ol {
@@ -1092,9 +1285,65 @@
    siguen aplicando. */
 .md-preview blockquote > :first-child { margin-top: 0; }
 .md-preview blockquote > :last-child { margin-bottom: 0; }
-.md-preview ul.contains-task-list { list-style: none; padding-left: 4px; }
-.md-preview .task-list-item { display: flex; align-items: flex-start; gap: 8px; }
-.md-preview .task-list-item input { margin-top: 5px; accent-color: var(--accent); }
+/* Sin padding: las tareas raíz arrancan en x=0 como en Bloques. */
+.md-preview ul.contains-task-list { list-style: none; padding-left: 0; }
+.md-preview .task-list-item { display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
+/* La sublista anidada baja a su propia línea (sin wrap el flex la deja al
+   lado del texto), alineada con el texto del padre (18px de checkbox + 8 de gap).
+   El color se restaura por si el padre está completado (atenuado). */
+.md-preview .task-list-item > ul,
+.md-preview .task-list-item > ol { flex-basis: 100%; margin-left: 22px; color: var(--subtext); }
+/* Tarea completada: igual que en Bloques (texto atenuado y tachado). El
+   tachado solo en hojas: text-decoration se propaga a los descendientes y
+   tacharía las subtareas pendientes de un padre completado. */
+.md-preview .task-list-item:has(> input:checked),
+.md-preview .task-list-item:has(> p > input:checked) { color: var(--muted); }
+.md-preview .task-list-item:has(> input:checked):not(:has(ul, ol)),
+.md-preview .task-list-item:has(> p > input:checked):not(:has(ul, ol)) {
+  text-decoration: line-through;
+}
+/* Checkbox calcado del .cb de Bloques: el nativo desentona y pinta el tick
+   descentrado en la webview. Mismas métricas que components.css (.cb). */
+.md-preview .task-list-item input {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  border: 2px solid var(--overlay);
+  border-radius: 6px;
+  background: transparent;
+  position: relative;
+  flex: none;
+}
+.md-preview .task-list-item input:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+/* Mismo tick que .cb (icono Lucide como máscara, ver --tick-icon): centrado
+   por el navegador, inmune a las rarezas de origen del ::after en un <input>. */
+.md-preview .task-list-item input:checked::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--accent-ink);
+  -webkit-mask: var(--tick-icon) center / 11px 11px no-repeat;
+  mask: var(--tick-icon) center / 11px 11px no-repeat;
+}
+/* Tarea "en progreso" (- [/]): checkbox medio lleno, como .cb.doing. */
+.md-preview .task-list-item.task-doing input {
+  border-color: var(--peach);
+  background: color-mix(in srgb, var(--peach) 35%, transparent);
+}
+.md-preview .task-list-item.task-doing input::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--peach);
+}
 .md-preview table {
   width: 100%;
   border-collapse: collapse;
@@ -1153,6 +1402,11 @@
 .block-row-bulletList + .block-row-bulletList,
 .block-row-numberedList + .block-row-numberedList,
 .block-row-taskItem + .block-row-taskItem { margin-top: 0; }
+/* Tarea padre → subtarea: 8px de aire, como en la Vista (allí lo pone el
+   row-gap del flex del .task-list-item al bajar la sublista de línea). */
+.block-row-taskItem[data-indent="0"] + .block-row-taskItem[data-indent="1"],
+.block-row-taskItem[data-indent="1"] + .block-row-taskItem[data-indent="2"],
+.block-row-taskItem[data-indent="2"] + .block-row-taskItem[data-indent="3"] { margin-top: 8px; }
 .block-row + .block-row-heading1 { margin-top: var(--flow-gap-h1); }
 .block-row + .block-row-heading2 { margin-top: var(--flow-gap-h2); }
 .block-row + .block-row-heading3 { margin-top: var(--flow-gap-h3); }
@@ -1342,7 +1596,10 @@ textarea.block-edit {
 }
 .block-display {
   cursor: text;
-  min-height: 1.35em;
+  /* 1lh = exactamente una línea del propio bloque. Con un em fijo (1.35em) los
+     headings (line-height 1.25) quedaban más altos que su línea de texto y
+     abrían un hueco extra respecto a la Vista. */
+  min-height: 1lh;
   width: 100%;
 }
 .block-display-ph .block-display {
@@ -1413,13 +1670,15 @@ textarea.block-edit {
 .block-bulletList[data-indent="2"]::before { content: "▪"; font-size: 11px; top: 3px; }
 .block-bulletList[data-indent="3"]::before { content: "▫"; font-size: 11px; top: 3px; }
 .block-numberedList { position: relative; padding-left: 22px; }
+/* El marcador llega ya formateado según nivel (1. → a. → i.); se ancla por la
+   derecha para que los romanos anchos (viii.) crezcan hacia fuera sin pisar
+   el texto. */
 .block-numberedList::before {
   content: attr(data-ord) ".";
   position: absolute;
-  left: 0;
+  right: calc(100% - 18px);
   top: 0;
-  width: 18px;
-  text-align: right;
+  white-space: nowrap;
   color: var(--subtext);
   font-variant-numeric: tabular-nums;
 }
@@ -1698,7 +1957,9 @@ textarea.block-edit {
 }
 
 .block-task { display: flex; align-items: flex-start; gap: 8px; }
-.block-task .cb { margin-top: 6px; }
+/* 2px centra el checkbox de 18px con la línea de texto (line-height 1.55),
+   mismo valor que el checkbox de la Vista para que ambas se vean iguales. */
+.block-task .cb { margin-top: 2px; }
 .block-divider { padding: 0; cursor: pointer; outline: none; }
 .block-divider hr { border: 0; border-top: 1px solid var(--line); }
 .block-divider:focus hr { border-top-color: var(--accent); }
@@ -1751,6 +2012,7 @@ textarea.block-edit {
 .block-picker-item.current .bp-hint { color: var(--accent); }
 .block-picker-item.danger { color: var(--red, #e05c5c); }
 .block-picker-item.danger:hover { background: color-mix(in srgb, var(--red, #e05c5c) 12%, transparent); color: var(--red, #e05c5c); }
+.bp-task-status-cb { pointer-events: none; flex-shrink: 0; }
 .block-picker-divider {
   height: 1px;
   margin: 4px 6px;
@@ -2059,6 +2321,75 @@ button.backlink:hover { background: var(--surface); color: var(--accent); }
 
 /* ----- TASKS / BASE / SETTINGS shared ----- */
 .view-base, .view-settings { max-width: 880px; margin: 0 auto; padding: 36px 32px 72px; }
+/* Base de datos: ancho completo del panel (estilo Notion), sin columna estrecha centrada. */
+.view-database {
+  --db-pad-x: 40px;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 32px var(--db-pad-x) 72px;
+  box-sizing: border-box;
+}
+@media (max-width: 760px) {
+  .view-database {
+    --db-pad-x: 16px;
+    padding: 24px var(--db-pad-x) 48px;
+  }
+}
+/* Tabla integrada en la página: sin recuadro, cabecera ligera, filas con solo divisores. */
+.view-database .table-wrap {
+  margin-inline: calc(-1 * var(--db-pad-x));
+  padding-inline: var(--db-pad-x);
+  border: none;
+  border-radius: 0;
+  overflow-x: auto;
+  overflow-y: visible;
+  width: auto;
+  max-width: none;
+}
+.view-database .db th {
+  background: transparent;
+  font-weight: 500;
+  padding: 6px 12px 10px;
+}
+.view-database .db td {
+  padding: 10px 12px;
+  background: transparent;
+}
+.view-database .db tbody tr:hover {
+  background: color-mix(in srgb, var(--surface) 45%, transparent);
+}
+.view-database .db tbody tr.selected {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.view-database .db th.db-col-frozen {
+  background: var(--base);
+}
+.view-database .db td.db-col-frozen {
+  background: var(--base);
+}
+.view-database .db tbody tr:hover td.db-col-frozen {
+  background: color-mix(in srgb, var(--surface) 45%, transparent);
+}
+.view-database .db tbody tr.selected td.db-col-frozen {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.view-database .db-new-cell {
+  padding-left: 12px !important;
+  padding-right: 12px !important;
+}
+.view-database .db-new-input {
+  border: none;
+  background: transparent;
+  padding: 6px 0;
+}
+.view-database .db-new-input::placeholder {
+  color: var(--muted);
+}
+.view-database .db-new-input:focus {
+  outline: none;
+  box-shadow: none;
+}
 .view-tasks { max-width: 1180px; margin: 0 auto; padding: 36px 32px 72px; }
 .tasks-head { margin-bottom: 24px; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .tasks-head h1 { font-size: 28px; font-weight: 800; letter-spacing: -0.02em; }
@@ -2514,12 +2845,12 @@ button.backlink:hover { background: var(--surface); color: var(--accent); }
 .kan-card .t-from { display: block; font-size: 11px; color: var(--muted); margin-top: 4px; }
 
 /* base / db table */
-.table-wrap { border: 1px solid var(--line); border-radius: var(--r); overflow: auto; max-width: 100%; }
+.table-wrap { border: 1px solid var(--line); border-radius: var(--r); overflow: auto; width: 100%; max-width: 100%; }
 .db { border-collapse: collapse; font-size: 13.5px; width: max-content; min-width: 100%; }
 .db th { text-align: left; padding: 11px 14px; background: var(--mantle); color: var(--muted); font-weight: 600; font-size: 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .db td { padding: 11px 14px; border-bottom: 1px solid var(--line); color: var(--subtext); vertical-align: top; }
-.db-col-note { min-width: 160px; width: 180px; max-width: 220px; }
-.db-col-meta { min-width: 100px; width: 240px; }
+.db-col-note { min-width: 200px; width: 240px; }
+.db-col-meta { min-width: 120px; width: 280px; }
 .db-col-tasks { min-width: 88px; width: 88px; white-space: nowrap; vertical-align: middle; }
 .db-col-check { width: 36px; min-width: 36px; max-width: 36px; text-align: center; padding: 11px 8px; }
 .db-col-check input[type="checkbox"] { cursor: pointer; accent-color: var(--accent); }
@@ -2611,12 +2942,10 @@ button.backlink:hover { background: var(--surface); color: var(--accent); }
   padding: 2px 4px;
   border-radius: 4px;
   cursor: pointer;
-  opacity: 0;
+  opacity: 1;
   transition: var(--tr);
   z-index: 1;
 }
-.db th:hover .db-col-menu-trigger,
-.db-col-menu-trigger:focus-visible { opacity: 1; }
 .db-col-menu-trigger:hover { background: var(--surface); color: var(--text); }
 .db th.db-col-frozen,
 .db td.db-col-frozen {
@@ -2734,6 +3063,19 @@ button.backlink:hover { background: var(--surface); color: var(--accent); }
   overflow: auto;
   resize: none;
   outline: none;
+}
+.db-cell-popover-date {
+  border-color: var(--line);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.32);
+  padding: 0;
+  overflow: hidden;
+}
+.db-cell-popover-date .task-popover.date-picker {
+  min-width: 280px;
+  background: var(--mantle);
+  border: 0;
+  border-radius: 6px;
+  box-shadow: none;
 }
 .row-ico { margin-right: 6px; display: inline-flex; align-items: center; vertical-align: -3px; color: var(--muted); }
 .db td .tag { margin-right: 0; }
@@ -3100,10 +3442,6 @@ button.backlink:hover { background: var(--surface); color: var(--accent); }
   color: var(--subtext);
   cursor: pointer;
 }
-.db-cell-date-input {
-  min-height: auto !important;
-  padding: 10px 12px !important;
-}
 .db-cell-pills .db-pill { cursor: default; }
 .db-cell-pills .db-pill:hover { opacity: 0.9; }
 .db-pill-wrap {
@@ -3259,8 +3597,14 @@ button.backlink:hover { background: var(--surface); color: var(--accent); }
 .set-input:focus { outline: none; border-color: var(--accent); }
 
 @media (max-width: 1100px) {
-  .app, .app.rp-open { grid-template-columns: 268px 1fr 0px; }
-  .right-panel { display: none; }
+  :root,
+  :root:has(.app.sb-open) { --sidebar-inset-start: 0px; }
+  :root,
+  :root:has(.app.rp-open) { --main-inset-end: 0px; }
+  .sidebar-shell { display: none; }
+  .sb-topbar-toggle { display: none; }
+  .right-panel-shell { display: none; }
+  .rp-topbar-toggle { display: none; }
 }
 
 @media (max-width: 920px) {

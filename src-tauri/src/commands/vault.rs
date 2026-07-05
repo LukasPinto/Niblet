@@ -139,6 +139,110 @@ pub fn read_note(path: String) -> Result<String, String> {
     fs::read_to_string(&path).map_err(|e| format!("No se pudo leer la nota: {e}"))
 }
 
+/// Una nota cuyo contenido contiene el término buscado, con un fragmento de
+/// contexto alrededor de la primera coincidencia (estilo Obsidian/Capacities).
+#[derive(Serialize, Deserialize, Clone)]
+pub struct ContentMatch {
+    pub path: String,
+    pub rel_path: String,
+    pub name: String,
+    pub folder: String,
+    /// Fragmento de la línea que contiene la coincidencia, recortado con `…`.
+    pub snippet: String,
+    pub modified: u64,
+}
+
+/// Primer fragmento con `q` (ya en minúsculas): ventana de ~140 chars centrada
+/// en la coincidencia sobre la primera línea no vacía que la contiene.
+fn first_snippet(content: &str, q: &str) -> Option<String> {
+    const BEFORE: usize = 30;
+    const MAX: usize = 140;
+    for raw in content.lines() {
+        let line = raw.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let lower = line.to_lowercase();
+        let Some(byte_idx) = lower.find(q) else {
+            continue;
+        };
+        let chars: Vec<char> = line.chars().collect();
+        // Aproximación por chars: to_lowercase es 1:1 para texto latino, que es
+        // lo habitual aquí; un desfase de 1-2 chars en el recorte es inocuo.
+        let match_char = lower[..byte_idx].chars().count().min(chars.len());
+        let start = match_char.saturating_sub(BEFORE);
+        let end = (start + MAX).min(chars.len());
+        let mut s = String::new();
+        if start > 0 {
+            s.push('…');
+        }
+        s.extend(&chars[start..end]);
+        if end < chars.len() {
+            s.push('…');
+        }
+        return Some(s);
+    }
+    None
+}
+
+/// Busca `query` dentro del contenido de todas las notas del vault. Una sola
+/// pasada por disco en un hilo aparte (como `list_notes`) para no congelar la
+/// UI. Devuelve las notas coincidentes con un fragmento de contexto.
+#[tauri::command]
+pub async fn search_note_contents(
+    vault_path: String,
+    query: String,
+) -> Result<Vec<ContentMatch>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let q = query.trim().to_lowercase();
+        if q.is_empty() {
+            return Ok(Vec::new());
+        }
+        let root = PathBuf::from(&vault_path);
+        if !root.is_dir() {
+            return Err(format!("El vault no existe: {vault_path}"));
+        }
+
+        let mut out = Vec::new();
+        for entry in WalkDir::new(&root).into_iter().filter_map(|e| e.ok()) {
+            let p = entry.path();
+            if !is_markdown(p) {
+                continue;
+            }
+            let Ok(content) = fs::read_to_string(p) else {
+                continue;
+            };
+            let Some(snippet) = first_snippet(&content, &q) else {
+                continue;
+            };
+            let rel = p.strip_prefix(&root).unwrap_or(p);
+            let rel_path = rel.to_string_lossy().replace('\\', "/");
+            let name = p
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            let folder = rel
+                .parent()
+                .map(|f| f.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_default();
+            out.push(ContentMatch {
+                path: p.to_string_lossy().to_string(),
+                rel_path,
+                name,
+                folder,
+                snippet,
+                modified: modified_secs(&entry),
+            });
+        }
+
+        out.sort_by(|a, b| b.modified.cmp(&a.modified));
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub fn write_note(path: String, content: String) -> Result<(), String> {
     if let Some(parent) = Path::new(&path).parent() {

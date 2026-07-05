@@ -30,6 +30,8 @@ export interface Block {
   text: string;
   /** Solo para `taskItem`. */
   checked?: boolean;
+  /** Solo para `taskItem`: estado "en progreso" (`- [/]`). */
+  doing?: boolean;
   /** Solo para `image`: texto alternativo. */
   alt?: string;
   /** Solo para `code`: etiqueta del fence Markdown (p. ej. `javascript`). */
@@ -162,6 +164,8 @@ export interface MarkdownShortcut {
   /** Texto restante tras quitar el prefijo Markdown. */
   rest: string;
   checked?: boolean;
+  /** Tarea "en progreso" (`[/]`). */
+  doing?: boolean;
 }
 
 /**
@@ -170,11 +174,23 @@ export interface MarkdownShortcut {
  * Devuelve null si el texto no empieza por un atajo reconocido.
  */
 export function detectMarkdownShortcut(text: string): MarkdownShortcut | null {
-  // Tarea: "- [ ] ", "- [x] " o el atajo corto "[] " / "[ ] " / "[x] ".
-  let m = text.match(/^[-*]\s\[([ xX]?)\]\s(.*)$/);
-  if (m) return { type: "taskItem", rest: m[2], checked: m[1].toLowerCase() === "x" };
-  m = text.match(/^\[([ xX]?)\]\s(.*)$/);
-  if (m) return { type: "taskItem", rest: m[2], checked: m[1].toLowerCase() === "x" };
+  // Tarea: "- [ ] ", "- [x] ", "- [/] " o el atajo corto "[] " / "[ ] " / "[x] " / "[/] ".
+  let m = text.match(/^[-*]\s\[([ xX/]?)\]\s(.*)$/);
+  if (m)
+    return {
+      type: "taskItem",
+      rest: m[2],
+      checked: m[1].toLowerCase() === "x",
+      doing: m[1] === "/" || undefined,
+    };
+  m = text.match(/^\[([ xX/]?)\]\s(.*)$/);
+  if (m)
+    return {
+      type: "taskItem",
+      rest: m[2],
+      checked: m[1].toLowerCase() === "x",
+      doing: m[1] === "/" || undefined,
+    };
 
   // Encabezados: "# ", "## ", "### ".
   m = text.match(/^(#{1,3})\s(.*)$/);
@@ -313,13 +329,14 @@ export function markdownToBlocks(md: string): Block[] {
       block = { id: newBlockId(), type: "heading2", text: line.replace(/^##\s+/, "") };
     } else if (/^###\s+/.test(line)) {
       block = { id: newBlockId(), type: "heading3", text: line.replace(/^###\s+/, "") };
-    } else if (/^\s*-\s*\[([ xX])\]\s+/.test(line)) {
-      const m = line.match(/^(\s*)-\s*\[([ xX])\]\s+(.*)$/)!;
+    } else if (/^\s*-\s*\[([ xX/])\]\s+/.test(line)) {
+      const m = line.match(/^(\s*)-\s*\[([ xX/])\]\s+(.*)$/)!;
       block = {
         id: newBlockId(),
         type: "taskItem",
         text: m[3],
         checked: m[2].toLowerCase() === "x",
+        doing: m[2] === "/" || undefined,
         indent: leadingIndentLevel(m[1]),
       };
     } else if (/^\s*[-*]\s+/.test(line)) {
@@ -425,6 +442,46 @@ export function computeOrderedOrdinals(blocks: Block[]): Map<string, number> {
   return map;
 }
 
+/**
+ * Marcador visible de una lista ordenada según su nivel de indentación,
+ * ciclando número → letra → romano (1. → a. → i.) como en la Vista. Solo es
+ * presentación: el markdown serializado sigue usando ordinales numéricos.
+ */
+export function formatOrderedMarker(ordinal: number, indent: number): string {
+  const style = ((indent % 3) + 3) % 3;
+  if (style === 1) return toLowerAlpha(ordinal);
+  if (style === 2) return toLowerRoman(ordinal);
+  return String(ordinal);
+}
+
+function toLowerAlpha(n: number): string {
+  if (n <= 0) return String(n);
+  let s = "";
+  while (n > 0) {
+    n--;
+    s = String.fromCharCode(97 + (n % 26)) + s;
+    n = Math.floor(n / 26);
+  }
+  return s;
+}
+
+function toLowerRoman(n: number): string {
+  if (n <= 0) return String(n);
+  const table: Array<[number, string]> = [
+    [1000, "m"], [900, "cm"], [500, "d"], [400, "cd"],
+    [100, "c"], [90, "xc"], [50, "l"], [40, "xl"],
+    [10, "x"], [9, "ix"], [5, "v"], [4, "iv"], [1, "i"],
+  ];
+  let s = "";
+  for (const [value, sym] of table) {
+    while (n >= value) {
+      s += sym;
+      n -= value;
+    }
+  }
+  return s;
+}
+
 export function blockToMarkdown(b: Block, ordinal = 1): string {
   const pad = indentPrefix(b.indent ?? 0);
   switch (b.type) {
@@ -439,7 +496,7 @@ export function blockToMarkdown(b: Block, ordinal = 1): string {
     case "numberedList":
       return `${pad}${ordinal}. ${b.text}`;
     case "taskItem":
-      return `${pad}- [${b.checked ? "x" : " "}] ${b.text}`;
+      return `${pad}- [${b.checked ? "x" : b.doing ? "/" : " "}] ${b.text}`;
     case "quote": {
       // Un marcador `> ` por nivel de anidación, en cada línea del bloque.
       // Las líneas vacías serializan como `>` (sin espacio colgante).

@@ -70,6 +70,7 @@ export function captureWorkspace(): VaultWorkspace {
     previewTabKey: preview ? editorTabKey(preview, notes, images) : null,
     view,
     rightPanelOpen: ui.rightPanelOpen,
+    sidebarOpen: ui.sidebarOpen,
     noteTasksCollapsed: ui.noteTasksCollapsed,
     noteBacklinksCollapsed: ui.noteBacklinksCollapsed,
   };

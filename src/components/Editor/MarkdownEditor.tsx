@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { EditorState } from "@codemirror/state";
 import {
   EditorView,
@@ -43,6 +43,8 @@ interface Props {
   onChange: (value: string) => void;
   onSave: () => void;
   noteRelPath?: string;
+  /** false cuando la vista Markdown está oculta (modo Bloques/Vista). */
+  visible?: boolean;
 }
 
 /** Inserta texto en la posición actual del cursor. */
@@ -73,13 +75,47 @@ interface WikiSuggestState {
   index: number;
 }
 
-export default function MarkdownEditor({ value, onChange, onSave, noteRelPath = "" }: Props) {
+export default function MarkdownEditor({
+  value,
+  onChange,
+  onSave,
+  noteRelPath = "",
+  visible = true,
+}: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
   const onSaveRef = useRef(onSave);
   onChangeRef.current = onChange;
   onSaveRef.current = onSave;
+
+  // Emit con debounce: publicar cada tecla al store re-renderiza sidebar,
+  // paneles y pestañas en cadena. Se acumula aquí y se difunde tras una pausa
+  // (o al perder foco / guardar / desmontar), igual que hace BlockEditor.
+  const emitTimerRef = useRef<number | undefined>(undefined);
+  const emitPendingRef = useRef(false);
+  /** Último contenido intercambiado con el padre (en cualquier dirección). */
+  const lastSyncedRef = useRef(value);
+
+  const flushPendingEmit = useCallback(() => {
+    if (emitTimerRef.current !== undefined) {
+      window.clearTimeout(emitTimerRef.current);
+      emitTimerRef.current = undefined;
+    }
+    if (!emitPendingRef.current) return;
+    emitPendingRef.current = false;
+    const view = viewRef.current;
+    if (!view) return;
+    const doc = view.state.doc.toString();
+    lastSyncedRef.current = doc;
+    onChangeRef.current(doc);
+  }, []);
+
+  const scheduleEmit = useCallback(() => {
+    emitPendingRef.current = true;
+    if (emitTimerRef.current !== undefined) window.clearTimeout(emitTimerRef.current);
+    emitTimerRef.current = window.setTimeout(flushPendingEmit, 160);
+  }, [flushPendingEmit]);
 
   const vaultPath = useVaultStore((s) => s.vaultPath);
   const notes = useNotesStore((s) => s.notes);
@@ -239,6 +275,7 @@ export default function MarkdownEditor({ value, onChange, onSave, noteRelPath = 
       {
         key: "Mod-s",
         run: () => {
+          flushPendingEmit();
           onSaveRef.current();
           return true;
         },
@@ -258,9 +295,24 @@ export default function MarkdownEditor({ value, onChange, onSave, noteRelPath = 
           markdown({ codeLanguages: languages }),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           wikilinkHighlightPlugin(),
+          EditorView.theme({
+            "&": { backgroundColor: "transparent" },
+            ".cm-content": { caretColor: "var(--text)" },
+            ".cm-cursor, .cm-dropCursor": {
+              borderLeftColor: "var(--text)",
+              borderLeftWidth: "2px",
+            },
+            "&.cm-focused": { outline: "none" },
+          }),
           keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
           saveKeymap,
           EditorView.domEventHandlers({
+            focusout: (event, view) => {
+              const related = event.relatedTarget as Node | null;
+              if (related && view.dom.contains(related)) return false;
+              flushPendingEmit();
+              return false;
+            },
             mousedown: (event, view) => {
               if (!(event.ctrlKey || event.metaKey)) return false;
               const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
@@ -304,9 +356,7 @@ export default function MarkdownEditor({ value, onChange, onSave, noteRelPath = 
             },
           }),
           EditorView.updateListener.of((u) => {
-            if (u.docChanged) {
-              onChangeRef.current(u.state.doc.toString());
-            }
+            if (u.docChanged) scheduleEmit();
             if (u.docChanged || u.selectionSet) {
               updateSuggest(u.view);
             }
@@ -315,23 +365,33 @@ export default function MarkdownEditor({ value, onChange, onSave, noteRelPath = 
       }),
     });
     viewRef.current = view;
+    lastSyncedRef.current = value;
     return () => {
+      flushPendingEmit();
       view.destroy();
       viewRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Al ocultar la vista Markdown, vaciar el emit pendiente (no sincronizar doc).
   useEffect(() => {
+    if (visible) return;
+    flushPendingEmit();
+  }, [visible, flushPendingEmit]);
+
+  // Sincronizar doc externo solo cuando el editor está visible.
+  useEffect(() => {
+    if (!visible) return;
     const view = viewRef.current;
     if (!view) return;
     const current = view.state.doc.toString();
-    if (current !== value) {
-      view.dispatch({
-        changes: { from: 0, to: current.length, insert: value },
-      });
-    }
-  }, [value]);
+    if (current === value || value === lastSyncedRef.current) return;
+    view.dispatch({
+      changes: { from: 0, to: current.length, insert: value },
+    });
+    lastSyncedRef.current = value;
+  }, [value, visible]);
 
   useEffect(() => {
     if (!wikiSuggest) return;

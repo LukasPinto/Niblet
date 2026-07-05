@@ -20,6 +20,7 @@ export interface VaultWorkspace {
   previewTabKey: string | null;
   view: ViewName;
   rightPanelOpen: boolean;
+  sidebarOpen: boolean;
   noteTasksCollapsed: boolean;
   noteBacklinksCollapsed: boolean;
 }
@@ -71,6 +72,7 @@ export function loadWorkspace(vaultPath: string): VaultWorkspace | null {
       previewTabKey: parsed.previewTabKey ?? null,
       view: parsed.view ?? "note",
       rightPanelOpen: parsed.rightPanelOpen ?? true,
+      sidebarOpen: parsed.sidebarOpen ?? true,
       noteTasksCollapsed: parsed.noteTasksCollapsed ?? false,
       noteBacklinksCollapsed: parsed.noteBacklinksCollapsed ?? false,
     };

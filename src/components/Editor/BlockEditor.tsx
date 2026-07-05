@@ -29,6 +29,7 @@ import {
   getOrParseBlocks,
   blocksToMarkdown,
   computeOrderedOrdinals,
+  formatOrderedMarker,
   detectMarkdownShortcut,
   emptyBlock,
   emptyTable,
@@ -200,6 +201,20 @@ function clampBlockMenuPosition(left: number, top: number): { left: number; top:
     left: Math.min(Math.max(margin, left), window.innerWidth - width - margin),
     top: Math.min(Math.max(margin, top), window.innerHeight - margin - 320),
   };
+}
+
+type TaskBlockStatus = "todo" | "doing" | "done";
+
+const TASK_STATUS_OPTIONS: { value: TaskBlockStatus; label: string }[] = [
+  { value: "todo", label: "Pendiente" },
+  { value: "doing", label: "En progreso" },
+  { value: "done", label: "Hecho" },
+];
+
+function taskBlockStatus(block: Block): TaskBlockStatus {
+  if (block.checked) return "done";
+  if (block.doing) return "doing";
+  return "todo";
 }
 
 const DRAG_THRESHOLD = 5;
@@ -381,7 +396,7 @@ function BlockDisplay({
     return (
       <div className={`block block-task ${block.checked ? "checked" : ""}`}>
         <span
-          className={`cb ${block.checked ? "checked" : ""}`}
+          className={`cb ${block.checked ? "checked" : block.doing ? "doing" : ""}`}
           onMouseDown={(e) => e.preventDefault()}
           onClick={(e) => {
             e.stopPropagation();
@@ -403,7 +418,11 @@ function BlockDisplay({
     <div
       className={`block block-${block.type}${showSlashPlaceholder && block.text === "" ? " block-display-ph" : ""}`}
       data-indent={Math.min(block.indent ?? 0, 3)}
-      data-ord={block.type === "numberedList" ? ordinal ?? 1 : undefined}
+      data-ord={
+        block.type === "numberedList"
+          ? formatOrderedMarker(ordinal ?? 1, block.indent ?? 0)
+          : undefined
+      }
       onMouseDown={activate}
     >
       <div className="block-display">
@@ -417,8 +436,8 @@ function BlockDisplay({
   );
 }
 
-/** Bloques donde Enter inserta `\n` y Shift+Enter crea un bloque nuevo. */
-function supportsSoftNewline(type: BlockType): boolean {
+/** Bloques donde Enter divide en un bloque nuevo y Shift+Enter inserta `\n`. */
+function splitsOnEnter(type: BlockType): boolean {
   return (
     type === "paragraph" ||
     type === "quote" ||
@@ -697,7 +716,7 @@ const BlockRow = memo(function BlockRow({
     return (
       <div className={`block block-task ${block.checked ? "checked" : ""}`}>
         <span
-          className={`cb ${block.checked ? "checked" : ""}`}
+          className={`cb ${block.checked ? "checked" : block.doing ? "doing" : ""}`}
           onClick={() => onToggleCheck(block.id)}
         />
         {editable}
@@ -724,7 +743,11 @@ const BlockRow = memo(function BlockRow({
     <div
       className={`block block-${block.type}`}
       data-indent={Math.min(block.indent ?? 0, 3)}
-      data-ord={block.type === "numberedList" ? ordinal ?? 1 : undefined}
+      data-ord={
+        block.type === "numberedList"
+          ? formatOrderedMarker(ordinal ?? 1, block.indent ?? 0)
+          : undefined
+      }
     >
       {editable}
     </div>
@@ -762,6 +785,11 @@ function BlockEditor({
   const emitPending = useRef(false);
   const blocksRef = useRef(blocks);
   const isTypingRef = useRef(false);
+  const undoStack = useRef<Block[][]>([]);
+  const redoStack = useRef<Block[][]>([]);
+  const historyPaused = useRef(false);
+  const typingHistoryPushed = useRef(false);
+  const MAX_UNDO = 100;
   // Durante el tecleo el texto vive en el DOM/refs; no pisar con state stale.
   if (!isTypingRef.current && !emitPending.current) {
     blocksRef.current = blocks;
@@ -806,6 +834,9 @@ function BlockEditor({
       emitTimer.current = undefined;
     }
     emitPending.current = false;
+    undoStack.current = [];
+    redoStack.current = [];
+    typingHistoryPushed.current = false;
     setBlocks(cloneBlocks(getOrParseBlocks(content)));
     setEditingBlockId(null);
     setSlash(null);
@@ -905,7 +936,76 @@ function BlockEditor({
     blocksRef.current = synced;
     onChangeRef.current(blocksToMarkdown(synced));
     setBlocks(synced);
+    typingHistoryPushed.current = false;
   }, [syncBlocksFromRefs]);
+
+  const getSnapshot = useCallback(
+    () => cloneBlocks(syncBlocksFromRefs(blocksRef.current)),
+    [syncBlocksFromRefs],
+  );
+
+  const snapshotsEqual = useCallback((a: Block[], b: Block[]) => {
+    return blocksToMarkdown(a) === blocksToMarkdown(b);
+  }, []);
+
+  const pushHistory = useCallback((override?: Block[]) => {
+    if (historyPaused.current) return;
+    const snap = override ? cloneBlocks(override) : getSnapshot();
+    const stack = undoStack.current;
+    const last = stack[stack.length - 1];
+    if (last && snapshotsEqual(last, snap)) return;
+    stack.push(snap);
+    if (stack.length > MAX_UNDO) stack.shift();
+    redoStack.current = [];
+  }, [getSnapshot, snapshotsEqual]);
+
+  const restoreSnapshot = useCallback(
+    (snap: Block[]) => {
+      historyPaused.current = true;
+      isTypingRef.current = false;
+      emitPending.current = false;
+      if (emitTimer.current !== undefined) {
+        window.clearTimeout(emitTimer.current);
+        emitTimer.current = undefined;
+      }
+      setEditingBlockId(null);
+      setSlash(null);
+      setMetaSuggest(null);
+      setWikiSuggest(null);
+      setBlockMenu(null);
+      const cloned = cloneBlocks(snap);
+      blocksRef.current = cloned;
+      setBlocks(cloned);
+      emitNow(blocksToMarkdown(cloned));
+      typingHistoryPushed.current = false;
+      historyPaused.current = false;
+      requestAnimationFrame(() => {
+        refreshEditingRef.current();
+        // Tras desmontar el textarea/CodeMirror el foco cae en body; sin esto
+        // el siguiente Ctrl+Z no entra al handler que exige foco en el editor.
+        editorRef.current?.focus({ preventScroll: true });
+      });
+    },
+    [emitNow],
+  );
+
+  const undo = useCallback(() => {
+    if (undoStack.current.length === 0) return false;
+    const current = getSnapshot();
+    redoStack.current.push(current);
+    const prev = undoStack.current.pop()!;
+    restoreSnapshot(prev);
+    return true;
+  }, [getSnapshot, restoreSnapshot]);
+
+  const redo = useCallback(() => {
+    if (redoStack.current.length === 0) return false;
+    const current = getSnapshot();
+    undoStack.current.push(current);
+    const next = redoStack.current.pop()!;
+    restoreSnapshot(next);
+    return true;
+  }, [getSnapshot, restoreSnapshot]);
 
   const commitBlockDomText = useCallback((id: string) => {
     const b = blocksRef.current.find((x) => x.id === id);
@@ -1168,6 +1268,8 @@ function BlockEditor({
 
   const commit = useCallback(
     (next: Block[]) => {
+      pushHistory();
+      typingHistoryPushed.current = false;
       isTypingRef.current = false;
       emitPending.current = false;
       if (emitTimer.current !== undefined) {
@@ -1182,7 +1284,7 @@ function BlockEditor({
       // ya está desconectado), y `editing` se quedaría atascado en `true`.
       requestAnimationFrame(refreshEditingRef.current);
     },
-    [emitNow],
+    [emitNow, pushHistory],
   );
 
   const indexFromPointer = (clientY: number): number => {
@@ -1300,9 +1402,9 @@ function BlockEditor({
     setBlockText(el, text);
     setBlockCaret(el, caret);
     setSlash(null);
-    const next = blocks.map((b) => (b.id === blockId ? { ...b, text } : b));
-    setBlocks(next);
-    emitNow(blocksToMarkdown(next));
+    const synced = syncBlocksFromRefs(blocksRef.current);
+    const next = synced.map((b) => (b.id === blockId ? { ...b, text } : b));
+    commit(next);
     updateWikiSuggest(blockId, el);
   };
 
@@ -1320,9 +1422,9 @@ function BlockEditor({
     const caret = wikiSuggest.valueStart + noteName.length + 2;
     setBlockCaret(el, caret);
     setWikiSuggest(null);
-    const next = blocks.map((b) => (b.id === blockId ? { ...b, text: newText } : b));
-    setBlocks(next);
-    emitNow(blocksToMarkdown(next));
+    const synced = syncBlocksFromRefs(blocksRef.current);
+    const next = synced.map((b) => (b.id === blockId ? { ...b, text: newText } : b));
+    commit(next);
   };
 
   const updateWikiSuggest = (id: string, el: BlockInputEl) => {
@@ -1414,6 +1516,7 @@ function BlockEditor({
           type,
           text: after,
           checked: type === "taskItem" ? false : undefined,
+          doing: undefined,
           indent,
           table: undefined,
           language: undefined,
@@ -1457,6 +1560,7 @@ function BlockEditor({
         ...b,
         type,
         checked: type === "taskItem" ? (b.checked ?? false) : undefined,
+        doing: type === "taskItem" ? b.doing : undefined,
         indent,
         language: type === "code" ? b.language : undefined,
         table: undefined,
@@ -1511,9 +1615,9 @@ function BlockEditor({
     setBlockText(el, newText);
     setBlockCaret(el, trigger.valueStart + value.length);
     setMetaSuggest(null);
-    const next = blocks.map((b) => (b.id === blockId ? { ...b, text: newText } : b));
-    setBlocks(next);
-    emitNow(blocksToMarkdown(next));
+    const synced = syncBlocksFromRefs(blocksRef.current);
+    const next = synced.map((b) => (b.id === blockId ? { ...b, text: newText } : b));
+    commit(next);
   };
 
   const updateMetaSuggest = (id: string, el: BlockInputEl) => {
@@ -1570,6 +1674,7 @@ function BlockEditor({
             type: sc.type,
             text: sc.rest,
             checked: sc.type === "taskItem" ? (sc.checked ?? false) : undefined,
+            doing: sc.type === "taskItem" ? sc.doing : undefined,
             indent: isIndentableBlockType(sc.type) ? (b.indent ?? 0) : undefined,
           }
         : b,
@@ -1602,6 +1707,20 @@ function BlockEditor({
   };
 
   const onInput = (id: string, el: BlockInputEl) => {
+    if (!typingHistoryPushed.current) {
+      // onInput llega después de que el DOM ya refleja la tecla: el snapshot
+      // debe usar el texto previo en blocksRef, no el valor actual del campo.
+      const priorText = blocksRef.current.find((b) => b.id === id)?.text;
+      if (priorText !== undefined) {
+        const snap = getSnapshot().map((b) =>
+          b.id === id ? { ...b, text: priorText } : b,
+        );
+        pushHistory(snap);
+      } else {
+        pushHistory();
+      }
+      typingHistoryPushed.current = true;
+    }
     isTypingRef.current = true;
     const text = readBlockText(el);
     const current = blocksRef.current;
@@ -1639,6 +1758,32 @@ function BlockEditor({
     setBlockText(el, newText);
     setBlockCaret(el, cursor + 1);
     onInput(id, el);
+  };
+
+  // Divide el bloque por el cursor: lo anterior se queda en el bloque actual
+  // y lo posterior pasa a uno nuevo (del mismo tipo si hay resto; párrafo si
+  // el cursor estaba al final).
+  const splitBlock = (id: string, el: BlockInputEl) => {
+    const text = readBlockText(el);
+    const cursor = getBlockCaret(el);
+    const before = text.slice(0, cursor);
+    const after = text.slice(cursor);
+    setBlockText(el, before);
+    const synced = syncBlocksFromRefs(blocksRef.current);
+    const idx = synced.findIndex((b) => b.id === id);
+    if (idx < 0) return;
+    const current = synced[idx];
+    const type: BlockType = after === "" ? "paragraph" : current.type;
+    const nb: Block = {
+      id: newBlockId(),
+      type,
+      text: after,
+      indent: isIndentableBlockType(type) ? (current.indent ?? 0) : undefined,
+    };
+    const kept = synced.map((b) => (b.id === id ? { ...b, text: before } : b));
+    const next = [...kept.slice(0, idx + 1), nb, ...kept.slice(idx + 1)];
+    focusReq.current = { id: nb.id, pos: "start", setText: after };
+    commit(next);
   };
 
   const insertAfter = (id: string, type: BlockType) => {
@@ -1800,12 +1945,79 @@ function BlockEditor({
     return () => document.removeEventListener("keydown", onKeyDownGlobal);
   }, [active, deleteNativeSelection]);
 
+  useEffect(() => {
+    if (!active) return;
+
+    const canHandleUndoRedo = () => {
+      const root = editorRef.current;
+      if (!root) return false;
+      const activeEl = document.activeElement;
+      if (!activeEl) return true;
+      if (root.contains(activeEl)) return true;
+      // Tras deshacer, el foco suele quedar en body/html: seguir permitiendo la cadena.
+      if (activeEl === document.body || activeEl === document.documentElement) {
+        return undoStack.current.length > 0 || redoStack.current.length > 0;
+      }
+      const el = activeEl as HTMLElement;
+      if (
+        el.tagName === "INPUT" ||
+        el.tagName === "TEXTAREA" ||
+        el.isContentEditable
+      ) {
+        return false;
+      }
+      return undoStack.current.length > 0 || redoStack.current.length > 0;
+    };
+
+    const onUndoRedo = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod || e.altKey) return;
+      if (!canHandleUndoRedo()) return;
+
+      if (e.key === "z" && !e.shiftKey) {
+        if (undo()) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        return;
+      }
+      if ((e.key === "z" && e.shiftKey) || e.key === "y") {
+        if (redo()) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }
+    };
+    document.addEventListener("keydown", onUndoRedo, true);
+    return () => document.removeEventListener("keydown", onUndoRedo, true);
+  }, [active, undo, redo]);
+
   const onToggleCheck = (id: string) => {
+    // Clic = completar: tanto pendiente como "en progreso" pasan a hecho.
     const next = blocks.map((b) =>
-      b.id === id ? { ...b, checked: !b.checked } : b,
+      b.id === id
+        ? { ...b, checked: b.doing ? true : !b.checked, doing: undefined }
+        : b,
     );
     commit(next);
   };
+
+  const setTaskStatus = useCallback(
+    (id: string, status: TaskBlockStatus) => {
+      setBlockMenu(null);
+      const next = blocks.map((b) =>
+        b.id === id
+          ? {
+              ...b,
+              checked: status === "done",
+              doing: status === "doing" ? true : undefined,
+            }
+          : b,
+      );
+      commit(next);
+    },
+    [blocks, commit],
+  );
 
   const onLanguageChange = useCallback(
     (id: string, language: string) => {
@@ -1947,11 +2159,6 @@ function BlockEditor({
       ) {
         return;
       }
-      if (supportsSoftNewline(block.type)) {
-        e.preventDefault();
-        insertAfter(block.id, "paragraph");
-        return;
-      }
       e.preventDefault();
       const el = refs.current.get(block.id);
       if (!el) return;
@@ -1961,11 +2168,11 @@ function BlockEditor({
 
     if (e.key === "Enter" && !e.shiftKey) {
       if (block.type === "code") return;
-      if (supportsSoftNewline(block.type)) {
+      if (splitsOnEnter(block.type)) {
         e.preventDefault();
         const el = refs.current.get(block.id);
         if (!el) return;
-        insertSoftNewline(block.id, el);
+        splitBlock(block.id, el);
         return;
       }
       e.preventDefault();
@@ -2142,6 +2349,7 @@ function BlockEditor({
       <div
         key={b.id}
         data-block-id={b.id}
+        data-indent={Math.min(b.indent ?? 0, 3)}
         className={`block-row block-row-${b.type} ${isDragging ? "dragging" : ""} ${isDropBefore ? "drag-over" : ""} ${isEmptyParagraph ? "block-row-empty" : ""}`}
         style={{ paddingLeft: (b.indent ?? 0) * INDENT_PX_PER_LEVEL }}
         onContextMenuCapture={(e) => onBlockContextMenu(b.id, e)}
@@ -2196,6 +2404,7 @@ function BlockEditor({
     <div
       className={`block-editor${active ? "" : " block-editor-dormant"}`}
       ref={editorRef}
+      tabIndex={-1}
       hidden={!active}
       onPaste={onPaste}
       onFocus={refreshEditing}
@@ -2279,6 +2488,8 @@ function BlockEditor({
       {blockMenu && (() => {
         const menuBlock = blocks.find((b) => b.id === blockMenu.blockId);
         const showTurnInto = menuBlock ? canTurnInto(menuBlock.type) : false;
+        const currentTaskStatus =
+          menuBlock?.type === "taskItem" ? taskBlockStatus(menuBlock) : null;
         return (
           <div
             className="block-picker block-turn-menu"
@@ -2295,6 +2506,42 @@ function BlockEditor({
               <span className="bp-ico"><Plus style={{ width: 16, height: 16 }} /></span>
               <span className="bp-label">Insertar bloque debajo</span>
             </div>
+            {menuBlock?.type === "taskItem" && (
+              <>
+                <div className="block-picker-divider" />
+                <div className="pl-section">Estado</div>
+                {TASK_STATUS_OPTIONS.map((opt) => {
+                  const isCurrent = currentTaskStatus === opt.value;
+                  return (
+                    <div
+                      key={opt.value}
+                      className={`block-picker-item ${isCurrent ? "current" : ""}`}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setTaskStatus(blockMenu.blockId, opt.value);
+                      }}
+                    >
+                      <span className="bp-ico">
+                        <span
+                          className={`cb sm bp-task-status-cb${
+                            opt.value === "done"
+                              ? " checked"
+                              : opt.value === "doing"
+                                ? " doing"
+                                : ""
+                          }`}
+                          aria-hidden
+                        />
+                      </span>
+                      <span className="bp-label">{opt.label}</span>
+                      {isCurrent && (
+                        <span className="bp-hint">Actual</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </>
+            )}
             {canDelete && (
               <div
                 className="block-picker-item danger"

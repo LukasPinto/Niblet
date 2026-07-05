@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { FieldType } from "../../lib/database/viewConfig";
+import TaskDatePicker from "../TasksPanel/TaskDatePicker";
 
 export interface EditAnchor {
   left: number;
@@ -37,7 +38,7 @@ export function DbCellEditor({
     const pop = popRef.current;
     if (!pop) return;
     const margin = 8;
-    const width = Math.max(anchor.width, 280);
+    const width = fieldType === "date" ? 280 : Math.max(anchor.width, 280);
     pop.style.width = `${width}px`;
     pop.style.minHeight = "";
 
@@ -60,7 +61,9 @@ export function DbCellEditor({
       top = Math.max(margin, window.innerHeight - rect.height - margin);
     }
     setPos({ left, top, width });
-    areaRef.current?.focus();
+    if (fieldType !== "date") {
+      areaRef.current?.focus();
+    }
   }, [anchor, fieldType, value]);
 
   useEffect(() => {
@@ -169,18 +172,15 @@ export function DbCellEditor({
         </div>
       </div>
     ) : fieldType === "date" ? (
-      <input
-        ref={areaRef as unknown as React.RefObject<HTMLInputElement>}
-        type="date"
-        className="db-cell-edit db-cell-date-input"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            onCommit();
-          }
+      <TaskDatePicker
+        embedded
+        initialDate={value || null}
+        onInputChange={onChange}
+        onSelect={(date) => {
+          onChange(date ?? "");
+          onCommit();
         }}
+        onClose={onCommit}
       />
     ) : (
       <textarea
@@ -200,7 +200,7 @@ export function DbCellEditor({
   return createPortal(
     <div
       ref={popRef}
-      className="db-cell-popover"
+      className={`db-cell-popover${fieldType === "date" ? " db-cell-popover-date" : ""}`}
       style={{
         left: pos.left,
         top: pos.top,

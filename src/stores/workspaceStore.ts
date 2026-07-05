@@ -62,6 +62,7 @@ export function initWorkspacePersistence(): void {
     if (
       state.view !== prev.view ||
       state.rightPanelOpen !== prev.rightPanelOpen ||
+      state.sidebarOpen !== prev.sidebarOpen ||
       state.noteTasksCollapsed !== prev.noteTasksCollapsed ||
       state.noteBacklinksCollapsed !== prev.noteBacklinksCollapsed
     ) {

@@ -61,6 +61,7 @@ pub fn run() {
             set_titlebar_theme,
             commands::vault::list_notes,
             commands::vault::read_note,
+            commands::vault::search_note_contents,
             commands::vault::write_note,
             commands::vault::create_note,
             commands::vault::delete_note,

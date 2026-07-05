@@ -59,6 +59,7 @@ export default function App() {
   const view = useUiStore((s) => s.view);
   const togglePalette = useUiStore((s) => s.togglePalette);
   const rightPanelOpen = useUiStore((s) => s.rightPanelOpen);
+  const sidebarOpen = useUiStore((s) => s.sidebarOpen);
   const tabCount = useTabsStore((s) => s.tabs.length);
 
   const refreshNotes = useNotesStore((s) => s.refreshNotes);
@@ -191,29 +192,31 @@ export default function App() {
   }
 
   return (
-    <div className={`app${rightPanelOpen ? " rp-open" : ""}`}>
-      <Sidebar />
-      <main className="main">
-        <TopBar />
-        {tabCount > 0 && view === "note" && <NoteTabBar />}
-        <CloneBanner />
-        <div className="canvas">
-          {view === "note" && (
-            <>
-              <NoteView />
-              <DatabaseTabPanels />
-              <ImageTabPanels />
-              <TasksTabPanels />
-            </>
-          )}
-          {view === "settings" && <Settings />}
-        </div>
-      </main>
-      <RightPanel />
+    <>
+      <div className={`app${sidebarOpen ? " sb-open" : ""}${rightPanelOpen ? " rp-open" : ""}`}>
+        <Sidebar />
+        <main className="main">
+          <TopBar />
+          {tabCount > 0 && view === "note" && <NoteTabBar />}
+          <CloneBanner />
+          <div className="canvas">
+            {view === "note" && (
+              <>
+                <NoteView />
+                <DatabaseTabPanels />
+                <ImageTabPanels />
+                <TasksTabPanels />
+              </>
+            )}
+            {view === "settings" && <Settings />}
+          </div>
+        </main>
+        <RightPanel />
+      </div>
       <LinkHoverPreview />
       <CommandPalette />
       <ConflictModal />
       <ContextMenu />
-    </div>
+    </>
   );
 }

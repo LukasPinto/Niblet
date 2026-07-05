@@ -20,11 +20,19 @@ interface Props {
   initialDate: string | null;
   onSelect: (date: string | null) => void;
   onClose: () => void;
+  /** Sincroniza el texto del campo mientras se escribe (p. ej. editor de BD). */
+  onInputChange?: (value: string) => void;
   /** En editor inline: sin posición absoluta; el padre fija coords. */
   embedded?: boolean;
 }
 
-export default function TaskDatePicker({ initialDate, onSelect, onClose, embedded }: Props) {
+export default function TaskDatePicker({
+  initialDate,
+  onSelect,
+  onClose,
+  onInputChange,
+  embedded,
+}: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -137,7 +145,10 @@ export default function TaskDatePicker({ initialDate, onSelect, onClose, embedde
         type="text"
         value={inputVal}
         placeholder="YYYY-MM-DD"
-        onChange={(e) => setInputVal(e.target.value)}
+        onChange={(e) => {
+          setInputVal(e.target.value);
+          onInputChange?.(e.target.value);
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();

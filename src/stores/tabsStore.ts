@@ -317,6 +317,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
     useUiStore.setState({
       view: restoredView,
       rightPanelOpen: ws.rightPanelOpen,
+      sidebarOpen: ws.sidebarOpen ?? true,
       noteTasksCollapsed: ws.noteTasksCollapsed,
       noteBacklinksCollapsed: ws.noteBacklinksCollapsed,
     });

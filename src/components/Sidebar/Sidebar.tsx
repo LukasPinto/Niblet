@@ -3,6 +3,10 @@ import { useVaultStore, lastSegment } from "../../stores/vaultStore";
 import { useTasksStore } from "../../stores/tasksStore";
 import { useSyncStore } from "../../stores/syncStore";
 import { useTabsStore } from "../../stores/tabsStore";
+import {
+  activeTabHighlightEqual,
+  selectActiveTabHighlight,
+} from "../../stores/tabSelectors";
 import { useUiStore } from "../../stores/uiStore";
 import { getAccount } from "../../lib/onedrive";
 import { openDailyNote } from "../../lib/dailyNotes";
@@ -20,7 +24,7 @@ import {
 import FolderTree from "./FolderTree";
 import CreateInVaultPopover from "./CreateInVaultPopover";
 
-export default function Sidebar() {
+function SidebarContent() {
   const vaultPath = useVaultStore((s) => s.vaultPath);
   const tasks = useTasksStore((s) => s.tasks);
   const conflicts = useTasksStore((s) => s.conflicts);
@@ -28,7 +32,10 @@ export default function Sidebar() {
   const setView = useUiStore((s) => s.setView);
   const openDatabaseTab = useTabsStore((s) => s.openDatabaseTab);
   const openTasksTab = useTabsStore((s) => s.openTasksTab);
-  const activeTab = useTabsStore((s) => s.activeTab());
+  const activeTab = useTabsStore(
+    (s) => selectActiveTabHighlight(s.tabs, s.activeTabId),
+    activeTabHighlightEqual,
+  );
   const togglePalette = useUiStore((s) => s.togglePalette);
   const openConflict = useUiStore((s) => s.openConflict);
   const recentVaults = useVaultStore((s) => s.recentVaults);
@@ -83,7 +90,7 @@ export default function Sidebar() {
           : "Todo sincronizado";
 
   return (
-    <aside className="sidebar">
+    <>
       <div className="vault">
         <div className="vault-badge">{vaultName.charAt(0).toUpperCase()}</div>
         <div className="vault-meta">
@@ -272,6 +279,59 @@ export default function Sidebar() {
           )}
         </div>
       </div>
-    </aside>
+    </>
+  );
+}
+
+export default function Sidebar() {
+  const sidebarOpen = useUiStore((s) => s.sidebarOpen);
+  const [peek, setPeek] = useState(false);
+  const enterTimer = useRef<number | undefined>(undefined);
+  const leaveTimer = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (sidebarOpen) setPeek(false);
+  }, [sidebarOpen]);
+
+  useEffect(
+    () => () => {
+      window.clearTimeout(enterTimer.current);
+      window.clearTimeout(leaveTimer.current);
+    },
+    [],
+  );
+
+  const handleEnter = () => {
+    if (sidebarOpen) return;
+    window.clearTimeout(leaveTimer.current);
+    enterTimer.current = window.setTimeout(() => setPeek(true), 90);
+  };
+
+  const handleLeave = () => {
+    if (sidebarOpen) return;
+    window.clearTimeout(enterTimer.current);
+    leaveTimer.current = window.setTimeout(() => setPeek(false), 220);
+  };
+
+  const visible = sidebarOpen || peek;
+
+  return (
+    <div className={`sidebar-shell${sidebarOpen ? " pinned" : ""}${peek ? " peek" : ""}`}>
+      {!sidebarOpen && (
+        <div
+          className={`sidebar-float-layer${peek ? " peek" : ""}`}
+          onMouseEnter={handleEnter}
+          onMouseLeave={handleLeave}
+        />
+      )}
+      <aside
+        className={`sidebar${sidebarOpen ? "" : " floating"}`}
+        aria-hidden={!visible}
+        onMouseEnter={!sidebarOpen ? handleEnter : undefined}
+        onMouseLeave={!sidebarOpen ? handleLeave : undefined}
+      >
+        <SidebarContent />
+      </aside>
+    </div>
   );
 }

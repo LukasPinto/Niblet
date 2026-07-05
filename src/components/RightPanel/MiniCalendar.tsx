@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNotesStore } from "../../stores/notesStore";
 import { useTabsStore } from "../../stores/tabsStore";
+import { selectActiveTabHighlight, activeTabHighlightEqual } from "../../stores/tabSelectors";
 import { useVaultStore } from "../../stores/vaultStore";
 import {
   openDailyNote,
@@ -30,7 +31,10 @@ export default function MiniCalendar() {
   const [viewMonth, setViewMonth] = useState(today.getMonth());
 
   const notes = useNotesStore((s) => s.notes);
-  const activeTab = useTabsStore((s) => s.activeTab());
+  const activeTab = useTabsStore(
+    (s) => selectActiveTabHighlight(s.tabs, s.activeTabId),
+    activeTabHighlightEqual,
+  );
   const dailyNotesFolder = useVaultStore((s) => s.config.dailyNotesFolder);
   const dailyNotesDateFormat = useVaultStore(
     (s) => s.config.dailyNotesDateFormat,

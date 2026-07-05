@@ -3,6 +3,7 @@ import type { ConflictEntry } from "../lib/tauri";
 
 export type ViewName = "note" | "tasks" | "base" | "settings";
 export type TasksMode = "list" | "kanban";
+export type FloatingPanelKind = "calendar" | "tasks" | "backlinks";
 
 export type ContextItemType = "folder" | "note" | "image";
 
@@ -28,9 +29,13 @@ interface UiState {
   contextMenu: ContextMenuState | null;
   /** Panel derecho (calendario) visible. Persistido en workspace local. */
   rightPanelOpen: boolean;
+  /** Barra lateral izquierda anclada. Persistido en workspace local. */
+  sidebarOpen: boolean;
   /** Resumen de tareas de la nota colapsado. Persistido en workspace local. */
   noteTasksCollapsed: boolean;
   noteBacklinksCollapsed: boolean;
+  /** Popover flotante del panel derecho (solo con la barra plegada). */
+  floatingPanel: FloatingPanelKind | null;
   setView: (view: ViewName) => void;
   togglePalette: (open?: boolean) => void;
   setTasksMode: (mode: TasksMode) => void;
@@ -46,8 +51,11 @@ interface UiState {
   ) => void;
   closeContextMenu: () => void;
   toggleRightPanel: (open?: boolean) => void;
+  toggleSidebar: (open?: boolean) => void;
   setNoteTasksCollapsed: (v: boolean) => void;
   setNoteBacklinksCollapsed: (v: boolean) => void;
+  toggleFloatingPanel: (kind: FloatingPanelKind) => void;
+  closeFloatingPanel: () => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -58,9 +66,11 @@ export const useUiStore = create<UiState>((set) => ({
   dbFolder: null,
   contextMenu: null,
   rightPanelOpen: true,
+  sidebarOpen: true,
   noteTasksCollapsed: false,
   noteBacklinksCollapsed: false,
-  setView: (view) => set({ view, paletteOpen: false }),
+  floatingPanel: null,
+  setView: (view) => set({ view, paletteOpen: false, floatingPanel: null }),
   togglePalette: (open) =>
     set((s) => ({ paletteOpen: open ?? !s.paletteOpen })),
   setTasksMode: (mode) => set({ tasksMode: mode }),
@@ -70,7 +80,20 @@ export const useUiStore = create<UiState>((set) => ({
     set({ contextMenu: { x, y, folder, itemType, itemPath, itemName } }),
   closeContextMenu: () => set({ contextMenu: null }),
   toggleRightPanel: (open) =>
-    set((s) => ({ rightPanelOpen: open ?? !s.rightPanelOpen })),
+    set((s) => {
+      const nextOpen = open ?? !s.rightPanelOpen;
+      return {
+        rightPanelOpen: nextOpen,
+        floatingPanel: nextOpen ? null : s.floatingPanel,
+      };
+    }),
+  toggleSidebar: (open) =>
+    set((s) => ({ sidebarOpen: open ?? !s.sidebarOpen })),
   setNoteTasksCollapsed: (v) => set({ noteTasksCollapsed: v }),
   setNoteBacklinksCollapsed: (v) => set({ noteBacklinksCollapsed: v }),
+  toggleFloatingPanel: (kind) =>
+    set((s) => ({
+      floatingPanel: s.floatingPanel === kind ? null : kind,
+    })),
+  closeFloatingPanel: () => set({ floatingPanel: null }),
 }));

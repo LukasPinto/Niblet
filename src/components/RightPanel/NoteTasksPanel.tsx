@@ -3,24 +3,31 @@ import { useNotesStore } from "../../stores/notesStore";
 import { useTasksStore } from "../../stores/tasksStore";
 import { useTabsStore } from "../../stores/tabsStore";
 import { useUiStore } from "../../stores/uiStore";
+import {
+  activeNoteTabEqual,
+  selectActiveNoteTab,
+} from "../../stores/tabSelectors";
 import { taskIndentStyle } from "../../lib/taskParser";
 import { parseNoteTasks, type NoteTask } from "../../lib/noteTasks";
 import { readNote, type Task } from "../../lib/tauri";
 
 /** Resumen de tareas de la nota activa, dentro del panel derecho. */
-export default function NoteTasksPanel() {
-  const activeTabId = useTabsStore((s) => s.activeTabId);
-  const tabs = useTabsStore((s) => s.tabs);
-  const activeTab = tabs.find((t) => t.id === activeTabId);
-  const path = activeTab?.kind === "note" ? activeTab.path : undefined;
-  const content = activeTab?.kind === "note" ? (activeTab.content ?? "") : "";
-
-  const entry = useNotesStore((s) =>
-    path ? s.notes.find((n) => n.path === path) : undefined,
+export default function NoteTasksPanel({ variant = "panel" }: { variant?: "panel" | "floating" }) {
+  const activeNote = useTabsStore(
+    (s) => selectActiveNoteTab(s.tabs, s.activeTabId),
+    activeNoteTabEqual,
   );
+  const path = activeNote?.path;
+  const content = activeNote?.content ?? "";
+
+  const entryRelPath = useNotesStore((s) => {
+    if (!path) return undefined;
+    return s.notes.find((n) => n.path === path)?.rel_path;
+  });
   const toggle = useTasksStore((s) => s.toggle);
-  const collapsed = useUiStore((s) => s.noteTasksCollapsed);
+  const noteTasksCollapsed = useUiStore((s) => s.noteTasksCollapsed);
   const setCollapsed = useUiStore((s) => s.setNoteTasksCollapsed);
+  const collapsed = variant === "floating" ? false : noteTasksCollapsed;
   const setTabContent = useTabsStore((s) => s.setTabContent);
   const saveTab = useTabsStore((s) => s.saveTab);
 
@@ -28,7 +35,7 @@ export default function NoteTasksPanel() {
   // para que el panel refleje lo que se escribe sin re-escanear todo el vault.
   const noteTasks = useMemo(() => parseNoteTasks(content), [content]);
 
-  if (!entry || !path) return null;
+  if (!entryRelPath || !path) return null;
 
   const doneCount = noteTasks.filter((t) => t.done).length;
   const pct = noteTasks.length
@@ -48,6 +55,37 @@ export default function NoteTasksPanel() {
     setTabContent(path, fresh);
   };
 
+  const body =
+    noteTasks.length === 0 ? (
+      <p className="empty-hint">Sin tareas. Escribe <code>- [ ] algo</code>.</p>
+    ) : (
+      <>
+        <div className="mini-progress">
+          <div className="bar" style={{ ["--p" as string]: `${pct}%` }} />
+          <span>{doneCount}/{noteTasks.length}</span>
+        </div>
+        <ul className="side-tasks">
+          {noteTasks.map((t) => (
+            <li
+              key={`${t.sourceLine}`}
+              className={t.done ? "done" : ""}
+              style={taskIndentStyle(t.indentLevel)}
+              onClick={() => onToggle(t)}
+            >
+              <span
+                className={`cb sm ${t.done ? "checked" : t.status === "doing" ? "doing" : ""}`}
+              />
+              {t.text}
+            </li>
+          ))}
+        </ul>
+      </>
+    );
+
+  if (variant === "floating") {
+    return <div className="rp-float-panel-inner">{body}</div>;
+  }
+
   return (
     <div className="side-card">
       <div className="side-head-row">
@@ -62,30 +100,7 @@ export default function NoteTasksPanel() {
           {collapsed ? "▸" : "▾"}
         </button>
       </div>
-      {!collapsed &&
-        (noteTasks.length === 0 ? (
-          <p className="empty-hint">Sin tareas. Escribe <code>- [ ] algo</code>.</p>
-        ) : (
-          <>
-            <div className="mini-progress">
-              <div className="bar" style={{ ["--p" as string]: `${pct}%` }} />
-              <span>{doneCount}/{noteTasks.length}</span>
-            </div>
-            <ul className="side-tasks">
-              {noteTasks.map((t) => (
-                <li
-                  key={`${t.sourceLine}`}
-                  className={t.done ? "done" : ""}
-                  style={taskIndentStyle(t.indentLevel)}
-                  onClick={() => onToggle(t)}
-                >
-                  <span className={`cb sm ${t.done ? "checked" : ""}`} />
-                  {t.text}
-                </li>
-              ))}
-            </ul>
-          </>
-        ))}
+      {!collapsed && body}
     </div>
   );
 }

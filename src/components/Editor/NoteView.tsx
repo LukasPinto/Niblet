@@ -1,7 +1,12 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback, memo } from "react";
+import { createPortal } from "react-dom";
 import { useNotesStore } from "../../stores/notesStore";
 import { useTabsStore } from "../../stores/tabsStore";
-import { useVaultStore, type NoteEditorMode } from "../../stores/vaultStore";
+import { noteTabId } from "../../stores/tabsStore";
+import {
+  noteTabFieldsEqual,
+  selectNoteTabByPath,
+} from "../../stores/tabSelectors";
 import {
   CalendarDays,
   Eye,
@@ -20,13 +25,46 @@ import {
   displayValue,
 } from "../../lib/markdown";
 import { buildNoteIndex, resolveNoteTarget } from "../../lib/linkParser";
-import { noteTabId } from "../../stores/tabsStore";
+import { useVaultStore, type NoteEditorMode } from "../../stores/vaultStore";
 import {
   useNoteLinkInteractions,
   interceptPreviewLinkMouseDown,
 } from "../../hooks/useNoteLinkInteractions";
 import { prefetchMarkdownImages } from "../../lib/imageCache";
 import { warmBlocksCache } from "../../lib/blockParser";
+
+function getNoteScrollCanvas(section: HTMLElement | null): HTMLElement | null {
+  return section?.closest(".canvas") as HTMLElement | null;
+}
+
+/** Proporción 0–1 del scroll actual (canvas o, en Markdown, el scroller de CM). */
+function captureNoteScrollRatio(section: HTMLElement | null): number {
+  const canvas = getNoteScrollCanvas(section);
+  if (!canvas) return 0;
+
+  const cmScroller = section?.querySelector<HTMLElement>(".cm-scroller");
+  if (cmScroller) {
+    const cmMax = cmScroller.scrollHeight - cmScroller.clientHeight;
+    if (cmMax > 1) return cmScroller.scrollTop / cmMax;
+  }
+
+  const max = canvas.scrollHeight - canvas.clientHeight;
+  return max > 0 ? canvas.scrollTop / max : 0;
+}
+
+function restoreNoteScrollRatio(section: HTMLElement | null, ratio: number) {
+  const canvas = getNoteScrollCanvas(section);
+  if (!canvas) return;
+
+  const max = canvas.scrollHeight - canvas.clientHeight;
+  canvas.scrollTop = ratio * max;
+
+  const cmScroller = section?.querySelector<HTMLElement>(".cm-scroller");
+  if (cmScroller) {
+    const cmMax = cmScroller.scrollHeight - cmScroller.clientHeight;
+    if (cmMax > 1) cmScroller.scrollTop = ratio * cmMax;
+  }
+}
 
 function PropRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: React.ReactNode }) {
   return (
@@ -78,26 +116,45 @@ function NoteModeSwitcher({
 }
 
 function NoteEditorInstance({ path }: { path: string }) {
-  const tab = useTabsStore((s) => s.getNoteTab(path));
+  const tabFields = useTabsStore(
+    (s) => selectNoteTabByPath(s.tabs, path),
+    noteTabFieldsEqual,
+  );
   const setTabContent = useTabsStore((s) => s.setTabContent);
   const saveTab = useTabsStore((s) => s.saveTab);
   const activeTabId = useTabsStore((s) => s.activeTabId);
-  const entry = useNotesStore((s) => s.notes.find((n) => n.path === path));
-  const notes = useNotesStore((s) => s.notes);
-  const openByRelPath = useNotesStore((s) => s.openByRelPath);
+  const entryMeta = useNotesStore(
+    (s) => {
+      const e = s.notes.find((n) => n.path === path);
+      return e ? { name: e.name, rel_path: e.rel_path } : null;
+    },
+    (a, b) => a?.name === b?.name && a?.rel_path === b?.rel_path,
+  );
+  const notesRevision = useNotesStore((s) => s.notes.length);
 
   const mode = useVaultStore((s) => s.config.noteEditorMode);
   const vaultPath = useVaultStore((s) => s.vaultPath);
   const updateConfig = useVaultStore((s) => s.updateConfig);
-  const setMode = (m: NoteEditorMode) => {
-    void updateConfig({ noteEditorMode: m });
-  };
+  const openByRelPath = useNotesStore((s) => s.openByRelPath);
+  const noteSectionRef = useRef<HTMLElement>(null);
+  const pendingScrollRatioRef = useRef<number | null>(null);
+
+  const setMode = useCallback(
+    (m: NoteEditorMode) => {
+      if (m !== mode) {
+        pendingScrollRatioRef.current = captureNoteScrollRatio(noteSectionRef.current);
+      }
+      void updateConfig({ noteEditorMode: m });
+    },
+    [mode, updateConfig],
+  );
 
   const [html, setHtml] = useState("");
   const previewKeyRef = useRef("");
   const isActive = activeTabId === noteTabId(path);
-  const content = tab?.content ?? "";
-  const dirty = tab?.dirty ?? false;
+  const content = tabFields?.content ?? "";
+  const dirty = tabFields?.dirty ?? false;
+  const contentEpoch = tabFields?.contentEpoch ?? 0;
 
   const { data, content: body } = useMemo(
     () => parseFrontmatter(content),
@@ -113,7 +170,7 @@ function NoteEditorInstance({ path }: { path: string }) {
     [path, setTabContent],
   );
 
-  const linkHover = useNoteLinkInteractions(entry?.rel_path ?? "");
+  const linkHover = useNoteLinkInteractions(entryMeta?.rel_path ?? "");
 
   // Precarga bloques e imágenes al abrir la nota (no en cada tecla).
   useEffect(() => {
@@ -126,6 +183,7 @@ function NoteEditorInstance({ path }: { path: string }) {
   // Vista previa: precalentar en Bloques/Markdown; al abrir Vista ya está lista.
   useEffect(() => {
     if (!isActive) return;
+    const notes = useNotesStore.getState().notes;
     const key = `${vaultPath ?? ""}\0${notes.length}\0${body}`;
     if (previewKeyRef.current === key) return;
 
@@ -143,7 +201,43 @@ function NoteEditorInstance({ path }: { path: string }) {
       alive = false;
       window.clearTimeout(timer);
     };
-  }, [isActive, mode, body, vaultPath, notes]);
+  }, [isActive, mode, body, vaultPath, notesRevision]);
+
+  // Al cambiar de Bloques / Markdown / Vista el alto del contenido cambia; si se
+  // conserva scrollTop en píxeles, la vista salta (p. ej. del final de Markdown al
+  // medio de Bloques). Restauramos la misma proporción de scroll.
+  useLayoutEffect(() => {
+    if (!isActive) return;
+    const ratio = pendingScrollRatioRef.current;
+    if (ratio === null) return;
+
+    const section = noteSectionRef.current;
+    if (!section) return;
+
+    const apply = () => restoreNoteScrollRatio(section, ratio);
+
+    apply();
+    const raf = requestAnimationFrame(() => {
+      apply();
+      requestAnimationFrame(apply);
+    });
+
+    const doc = section.querySelector(".doc");
+    const ro = new ResizeObserver(() => apply());
+    if (doc) ro.observe(doc);
+
+    const timer = window.setTimeout(() => {
+      apply();
+      pendingScrollRatioRef.current = null;
+      ro.disconnect();
+    }, 500);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+      ro.disconnect();
+    };
+  }, [isActive, mode, html, body]);
 
   const onPreviewClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -181,14 +275,14 @@ function NoteEditorInstance({ path }: { path: string }) {
       }
       if (/^https?:/i.test(href) || href.startsWith("mailto:")) return;
 
-      const index = buildNoteIndex(notes);
-      const resolved = resolveNoteTarget(href, entry?.rel_path ?? "", index);
+      const index = buildNoteIndex(useNotesStore.getState().notes);
+      const resolved = resolveNoteTarget(href, entryMeta?.rel_path ?? "", index);
       if (resolved) {
         e.preventDefault();
         void openByRelPath(resolved);
       }
     },
-    [entry?.rel_path, notes, openByRelPath],
+    [entryMeta?.rel_path, openByRelPath],
   );
 
   const saveTimer = useRef<number | undefined>(undefined);
@@ -201,19 +295,19 @@ function NoteEditorInstance({ path }: { path: string }) {
     return () => window.clearTimeout(saveTimer.current);
   }, [content, dirty, isActive, path, saveTab]);
 
-  if (!tab || !entry) return null;
+  if (!tabFields || !entryMeta) return null;
 
   const tags = data.tags
     ? (Array.isArray(data.tags) ? data.tags : [data.tags])
     : [];
 
   return (
-    <section className="view view-note">
+    <section className="view view-note" ref={noteSectionRef}>
       <article className="doc">
         <div className="doc-icon"><CalendarDays style={{ width: 34, height: 34 }} /></div>
         <input
           className="doc-title"
-          value={entry.name}
+          value={entryMeta.name}
           readOnly
           spellCheck={false}
         />
@@ -245,7 +339,8 @@ function NoteEditorInstance({ path }: { path: string }) {
         <div hidden={mode !== "edit"}>
           <MarkdownEditor
             value={content}
-            noteRelPath={entry.rel_path}
+            visible={mode === "edit"}
+            noteRelPath={entryMeta.rel_path}
             onChange={(c) => setTabContent(path, c)}
             onSave={() => saveTab(path)}
           />
@@ -255,7 +350,7 @@ function NoteEditorInstance({ path }: { path: string }) {
           <BlockEditor
             content={body}
             noteKey={path}
-            contentEpoch={tab.contentEpoch ?? 0}
+            contentEpoch={contentEpoch}
             active={mode === "blocks"}
             onChange={onBlockChange}
           />
@@ -268,21 +363,33 @@ function NoteEditorInstance({ path }: { path: string }) {
           dangerouslySetInnerHTML={{ __html: html }}
           onClick={onPreviewClick}
           onMouseDown={(e) =>
-            interceptPreviewLinkMouseDown(e, notes, entry.rel_path, openByRelPath)
+            interceptPreviewLinkMouseDown(
+              e,
+              useNotesStore.getState().notes,
+              entryMeta.rel_path,
+              openByRelPath,
+            )
           }
           onMouseOver={linkHover.onMouseOver}
           onMouseMove={linkHover.onMouseMove}
           onMouseOut={linkHover.onMouseOut}
         />
       </article>
-      {isActive && (
-        <div className="note-mode-float">
-          <NoteModeSwitcher mode={mode} onModeChange={setMode} />
-        </div>
-      )}
+      {/* En portal: dentro de .view (que anima `transform` al entrar) el
+          position:fixed se ancla al contenedor animado en vez del viewport y
+          la barra salta de sitio durante el fade al cambiar de nota. */}
+      {isActive &&
+        createPortal(
+          <div className="note-mode-float">
+            <NoteModeSwitcher mode={mode} onModeChange={setMode} />
+          </div>,
+          document.body,
+        )}
     </section>
   );
 }
+
+const MemoNoteEditorInstance = memo(NoteEditorInstance);
 
 export default function NoteView() {
   const tabs = useTabsStore((s) => s.tabs);
@@ -314,7 +421,7 @@ export default function NoteView() {
           className="note-tab-panel"
           hidden={tab.id !== activeTabId}
         >
-          {tab.path && <NoteEditorInstance path={tab.path} />}
+          {tab.path && <MemoNoteEditorInstance path={tab.path} />}
         </div>
       ))}
     </>
