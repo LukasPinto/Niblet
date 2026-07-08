@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Calendar, FileText, Flag } from "lucide-react";
 import { useTasksStore } from "../../stores/tasksStore";
 import { useTabsStore } from "../../stores/tabsStore";
@@ -8,8 +8,10 @@ import {
   countNodes,
   dueLabel,
   duePillClass,
+  nodeHasMatchingDescendant,
   priorityLabel,
   sourceLabel,
+  taskNodeKey,
   type TaskNode,
 } from "../../lib/taskParser";
 import type { Task } from "../../lib/tauri";
@@ -23,8 +25,11 @@ interface TaskCardProps {
   task: Task;
   variant: "list" | "kanban";
   dragging?: boolean;
-  /** Subtareas anidadas que se renderizan dentro de esta tarjeta. */
+  /** Subtareas visibles (pueden estar filtradas por búsqueda). */
   subtasks?: TaskNode[];
+  /** Índice del árbol completo sin filtrar (progreso y metadatos). */
+  nodeIndex: Map<string, TaskNode>;
+  searchQuery?: string;
 }
 
 export default function TaskCard({
@@ -32,6 +37,8 @@ export default function TaskCard({
   variant,
   dragging = false,
   subtasks = [],
+  nodeIndex,
+  searchQuery = "",
 }: TaskCardProps) {
   const setDueDate = useTasksStore((s) => s.setDueDate);
   const setPriority = useTasksStore((s) => s.setPriority);
@@ -39,21 +46,41 @@ export default function TaskCard({
   const setView = useUiStore((s) => s.setView);
 
   const [openPicker, setOpenPicker] = useState<PickerKind>(null);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
+
+  const fullNode = nodeIndex.get(taskNodeKey(task));
+  const allSubtasks = fullNode?.children ?? subtasks;
+  const hasQuery = searchQuery.trim().length > 0;
+
+  const expandForSearch = useMemo(
+    () =>
+      hasQuery &&
+      fullNode != null &&
+      nodeHasMatchingDescendant(fullNode, searchQuery),
+    [fullNode, hasQuery, searchQuery],
+  );
+
+  useEffect(() => {
+    if (expandForSearch) setCollapsed(false);
+  }, [expandForSearch]);
+
+  const noteLabel = sourceLabel(task.rel_path);
 
   const duePill = dueLabel(task);
   const prio = priorityLabel(task);
-  const hasSubs = subtasks.length > 0;
-  const subCount = hasSubs ? countNodes(subtasks) : 0;
-  const doneCount = hasSubs ? countDoneNodes(subtasks) : 0;
+  const hasSubs = allSubtasks.length > 0;
+  const hasVisibleSubs = subtasks.length > 0;
+  const subCount = hasSubs ? countNodes(allSubtasks) : 0;
+  const doneCount = hasSubs ? countDoneNodes(allSubtasks) : 0;
   const progressPct = hasSubs ? Math.round((doneCount / subCount) * 100) : 0;
+  const showChevron = hasQuery ? hasVisibleSubs : hasSubs;
 
   const toggleCollapse = (e: React.MouseEvent) => {
     e.stopPropagation();
     setCollapsed((c) => !c);
   };
 
-  const chevron = hasSubs ? (
+  const chevron = showChevron ? (
     <button
       type="button"
       className="task-collapse"
@@ -113,8 +140,14 @@ export default function TaskCard({
 
   const metaContent = (
     <>
-      <span className="t-from" draggable={false} onClick={goToSource}>
-        <FileText style={{ width: 13, height: 13 }} /> {sourceLabel(task.rel_path)}
+      <span
+        className="t-from"
+        role="link"
+        title={`Abrir nota: ${noteLabel}`}
+        draggable={false}
+        onClick={goToSource}
+      >
+        <FileText style={{ width: 13, height: 13 }} /> {noteLabel}
       </span>
 
       <div className="task-shortcuts">
@@ -213,7 +246,7 @@ export default function TaskCard({
           </div>
           <div className="kan-card-meta">{metaContent}</div>
         </div>
-        {hasSubs && !collapsed && (
+        {hasVisibleSubs && !collapsed && (
           <div className="kan-subtasks">
             {subtasks.map((child) => (
               <TaskCard
@@ -221,6 +254,8 @@ export default function TaskCard({
                 task={child.task}
                 variant="kanban"
                 subtasks={child.children}
+                nodeIndex={nodeIndex}
+                searchQuery={searchQuery}
               />
             ))}
           </div>
@@ -239,7 +274,7 @@ export default function TaskCard({
           {metaContent}
         </div>
       </div>
-      {hasSubs && !collapsed && (
+      {hasVisibleSubs && !collapsed && (
         <ul className="task-sublist">
           {subtasks.map((child) => (
             <TaskCard
@@ -247,6 +282,8 @@ export default function TaskCard({
               task={child.task}
               variant="list"
               subtasks={child.children}
+              nodeIndex={nodeIndex}
+              searchQuery={searchQuery}
             />
           ))}
         </ul>

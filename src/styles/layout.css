@@ -1013,8 +1013,21 @@
   --flow-gap-h3: 20px;
   --flow-gap-after-h3: 8px;
   --flow-gap-block: 12px;
+  --flow-gap-list-sibling: 0;
+  --flow-gap-list-child: var(--flow-gap-paragraph);
+  --indent-px: 22px;
+  --task-marker-w: 26px;
+  --bullet-marker-w: 22px;
 }
 .md-preview > :first-child { margin-top: 0; }
+.md-preview h1 + ul,
+.md-preview h2 + ul,
+.md-preview h3 + ul,
+.md-preview h1 + ol,
+.md-preview h2 + ol,
+.md-preview h3 + ol {
+  margin-top: 0;
+}
 .md-preview h1,
 .md-preview h2,
 .md-preview h3 {
@@ -1285,14 +1298,105 @@
    siguen aplicando. */
 .md-preview blockquote > :first-child { margin-top: 0; }
 .md-preview blockquote > :last-child { margin-bottom: 0; }
-/* Sin padding: las tareas raíz arrancan en x=0 como en Bloques. */
-.md-preview ul.contains-task-list { list-style: none; padding-left: 0; }
-.md-preview .task-list-item { display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
-/* La sublista anidada baja a su propia línea (sin wrap el flex la deja al
-   lado del texto), alineada con el texto del padre (18px de checkbox + 8 de gap).
-   El color se restaura por si el padre está completado (atenuado). */
-.md-preview .task-list-item > ul,
-.md-preview .task-list-item > ol { flex-basis: 100%; margin-left: 22px; color: var(--subtext); }
+/* Sin padding/margin en la raíz: las tareas arrancan en x=0 como en Bloques. */
+.md-preview ul.contains-task-list {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+}
+/* Misma lógica que `.block-row-* + .block-row-*` en Bloques. */
+.md-preview ul.contains-task-list > li + li {
+  margin-top: var(--flow-gap-list-sibling);
+}
+.md-preview ul.contains-task-list > li.task-list-item + li.task-list-item,
+.md-preview ul.contains-task-list > li:not(.task-list-item) + li:not(.task-list-item) {
+  margin-top: var(--flow-gap-list-sibling);
+}
+.md-preview ul.contains-task-list > li.task-list-item + li:not(.task-list-item),
+.md-preview ul.contains-task-list > li:not(.task-list-item) + li.task-list-item {
+  margin-top: var(--flow-gap-list-child);
+}
+.md-preview ul.contains-task-list li ul > li + li,
+.md-preview ul.contains-task-list li ol > li + li {
+  margin-top: var(--flow-gap-list-sibling);
+}
+/*
+ * Indentación incremental como Bloques: cada sublista suma 22px (padding en el
+ * <ul>/<ol> hijo), no margin absoluto en el <li> — en HTML anidado el margin
+ * del hijo se suma al desplazamiento del padre y rompe la alineación.
+ */
+.md-preview ul.contains-task-list ul,
+.md-preview ul.contains-task-list ul.contains-task-list,
+.md-preview ul.contains-task-list ol {
+  padding-left: 0;
+  margin-left: 0;
+  list-style: none;
+}
+.md-preview ul.contains-task-list li > ul,
+.md-preview ul.contains-task-list li > ol {
+  margin: var(--flow-gap-list-child) 0 0;
+  padding-left: var(--indent-px);
+}
+.md-preview ul.contains-task-list li.task-list-item {
+  position: relative;
+  list-style: none;
+  margin-left: 0;
+  padding-left: var(--task-marker-w);
+  color: var(--subtext);
+  line-height: 1.55;
+}
+.md-preview ul.contains-task-list li:not(.task-list-item) {
+  position: relative;
+  list-style: none;
+  margin-left: 0;
+  padding-left: var(--bullet-marker-w);
+  color: var(--subtext);
+  line-height: 1.55;
+}
+.md-preview ul.contains-task-list > li:not(.task-list-item)::before {
+  content: "•";
+  position: absolute;
+  left: 6px;
+  top: 0;
+  color: var(--subtext);
+  font-weight: 700;
+}
+.md-preview ul.contains-task-list ul > li:not(.task-list-item)::before {
+  content: "◦";
+  left: 6px;
+  font-weight: 700;
+}
+.md-preview ul.contains-task-list ul ul > li:not(.task-list-item)::before {
+  content: "▪";
+  left: 6px;
+  font-size: 11px;
+  top: 3px;
+  font-weight: 700;
+}
+.md-preview ul.contains-task-list ul ul ul > li:not(.task-list-item)::before,
+.md-preview ul.contains-task-list ul ul ul ul > li:not(.task-list-item)::before {
+  content: "▫";
+  left: 6px;
+  font-size: 11px;
+  top: 3px;
+  font-weight: 700;
+}
+.md-preview ul.contains-task-list li.task-list-item > input {
+  position: absolute;
+  left: 0;
+  top: 2px;
+  margin: 0;
+}
+.md-preview ul.contains-task-list li.task-list-item > p > input {
+  position: absolute;
+  left: 0;
+  top: 2px;
+  margin: 0;
+}
+.md-preview ul.contains-task-list li.task-list-item > p {
+  margin: 0;
+  display: inline;
+}
 /* Tarea completada: igual que en Bloques (texto atenuado y tachado). El
    tachado solo en hojas: text-decoration se propaga a los descendientes y
    tacharía las subtareas pendientes de un padre completado. */
@@ -1308,11 +1412,9 @@
   appearance: none;
   width: 18px;
   height: 18px;
-  margin: 2px 0 0;
   border: 2px solid var(--overlay);
   border-radius: 6px;
   background: transparent;
-  position: relative;
   flex: none;
 }
 .md-preview .task-list-item input:checked {
@@ -1392,6 +1494,8 @@
   --flow-gap-h3: 20px;
   --flow-gap-after-h3: 8px;
   --flow-gap-block: 12px;
+  --flow-gap-list-sibling: 0;
+  --flow-gap-list-child: var(--flow-gap-paragraph);
 }
 .block-row { margin: 0; }
 .block-row + .block-row-paragraph,
@@ -1401,12 +1505,21 @@
 .block-row + .block-row-taskItem { margin-top: var(--flow-gap-paragraph); }
 .block-row-bulletList + .block-row-bulletList,
 .block-row-numberedList + .block-row-numberedList,
-.block-row-taskItem + .block-row-taskItem { margin-top: 0; }
-/* Tarea padre → subtarea: 8px de aire, como en la Vista (allí lo pone el
-   row-gap del flex del .task-list-item al bajar la sublista de línea). */
+.block-row-taskItem + .block-row-taskItem { margin-top: var(--flow-gap-list-sibling); }
+/* Mayor indentación → aire entre filas (lista/tarea, cualquier combinación). */
 .block-row-taskItem[data-indent="0"] + .block-row-taskItem[data-indent="1"],
 .block-row-taskItem[data-indent="1"] + .block-row-taskItem[data-indent="2"],
-.block-row-taskItem[data-indent="2"] + .block-row-taskItem[data-indent="3"] { margin-top: 8px; }
+.block-row-taskItem[data-indent="2"] + .block-row-taskItem[data-indent="3"],
+.block-row-bulletList[data-indent="0"] + .block-row-taskItem[data-indent="1"],
+.block-row-bulletList[data-indent="0"] + .block-row-taskItem[data-indent="2"],
+.block-row-bulletList[data-indent="1"] + .block-row-taskItem[data-indent="2"],
+.block-row-taskItem[data-indent="0"] + .block-row-bulletList[data-indent="1"],
+.block-row-taskItem[data-indent="1"] + .block-row-bulletList[data-indent="2"],
+.block-row-bulletList[data-indent="0"] + .block-row-bulletList[data-indent="1"],
+.block-row-bulletList[data-indent="1"] + .block-row-bulletList[data-indent="2"],
+.block-row-bulletList[data-indent="2"] + .block-row-bulletList[data-indent="3"] {
+  margin-top: var(--flow-gap-list-child);
+}
 .block-row + .block-row-heading1 { margin-top: var(--flow-gap-h1); }
 .block-row + .block-row-heading2 { margin-top: var(--flow-gap-h2); }
 .block-row + .block-row-heading3 { margin-top: var(--flow-gap-h3); }
@@ -2391,8 +2504,53 @@ button.backlink:hover { background: var(--surface); color: var(--accent); }
   box-shadow: none;
 }
 .view-tasks { max-width: 1180px; margin: 0 auto; padding: 36px 32px 72px; }
-.tasks-head { margin-bottom: 24px; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.tasks-head { margin-bottom: 16px; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .tasks-head h1 { font-size: 28px; font-weight: 800; letter-spacing: -0.02em; }
+.tasks-toolbar { margin-bottom: 20px; }
+.tasks-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  max-width: 320px;
+}
+.tasks-search-icon {
+  position: absolute;
+  left: 10px;
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+  pointer-events: none;
+}
+.tasks-search-input {
+  font: inherit;
+  font-size: 13px;
+  width: 100%;
+  padding: 8px 32px 8px 34px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text);
+  transition: var(--tr);
+}
+.tasks-search-input:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+.tasks-search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.tasks-search-clear {
+  position: absolute;
+  right: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+}
+.tasks-search-clear:hover { color: var(--text); background: var(--surface2); }
 .muted { color: var(--muted); font-size: 13px; margin-top: 4px; }
 
 /* tasks list */
@@ -2423,8 +2581,26 @@ button.backlink:hover { background: var(--surface); color: var(--accent); }
 .t-main { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 3px; }
 .t-text-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .t-main .t-text { color: var(--text); }
-.t-from { font-size: 11.5px; color: var(--muted); cursor: pointer; }
-.t-from:hover { color: var(--accent); }
+.t-from {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  max-width: 100%;
+  font-size: 11.5px;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 1px 4px;
+  margin: -1px -4px;
+  transition: var(--tr);
+}
+.t-from:hover {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
 .t-from svg, .kan-card-ghost-from svg { vertical-align: -2px; }
 .task-pill svg { vertical-align: -2px; margin-right: 1px; }
 .priority-option-icon { display: inline-flex; align-items: center; }

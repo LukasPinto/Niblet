@@ -154,6 +154,24 @@ export interface TaskNode {
   children: TaskNode[];
 }
 
+/** Clave estable para localizar un nodo en el árbol. */
+export function taskNodeKey(task: Task): string {
+  return `${task.source_path}:${task.source_line}`;
+}
+
+/** Índice de todos los nodos del árbol por clave de tarea. */
+export function indexTaskNodes(nodes: TaskNode[]): Map<string, TaskNode> {
+  const map = new Map<string, TaskNode>();
+  const walk = (list: TaskNode[]) => {
+    for (const node of list) {
+      map.set(taskNodeKey(node.task), node);
+      walk(node.children);
+    }
+  };
+  walk(nodes);
+  return map;
+}
+
 /**
  * Construye el árbol de tareas a partir de la lista plana usando `indent_level`.
  * El emparejado es por nota (source_path) y orden de línea: una subtarea cuelga
@@ -237,4 +255,44 @@ export function sortTasksDocumentOrder(a: Task, b: Task): number {
   });
   if (pathCmp !== 0) return pathCmp;
   return a.source_line - b.source_line;
+}
+
+/** ¿La tarea coincide con la consulta (texto, nota, fecha, prioridad)? */
+export function taskMatchesQuery(task: Task, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  if (task.text.toLowerCase().includes(q)) return true;
+  if (task.rel_path.toLowerCase().includes(q)) return true;
+  if (sourceLabel(task.rel_path).toLowerCase().includes(q)) return true;
+  const due = dueLabel(task);
+  if (due?.toLowerCase().includes(q)) return true;
+  const prio = priorityLabel(task);
+  if (prio?.label.toLowerCase().includes(q)) return true;
+  return false;
+}
+
+/** Filtra el árbol: conserva nodos que coinciden o tienen descendientes que coinciden. */
+export function filterTaskNodes(nodes: TaskNode[], query: string): TaskNode[] {
+  const q = query.trim();
+  if (!q) return nodes;
+  const result: TaskNode[] = [];
+  for (const node of nodes) {
+    const filteredChildren = filterTaskNodes(node.children, query);
+    if (taskMatchesQuery(node.task, q) || filteredChildren.length > 0) {
+      result.push({ task: node.task, children: filteredChildren });
+    }
+  }
+  return result;
+}
+
+/** ¿Algún descendiente (no la raíz) coincide con la consulta? */
+export function nodeHasMatchingDescendant(node: TaskNode, query: string): boolean {
+  const q = query.trim();
+  if (!q) return false;
+  for (const child of node.children) {
+    if (taskMatchesQuery(child.task, q) || nodeHasMatchingDescendant(child, q)) {
+      return true;
+    }
+  }
+  return false;
 }

@@ -476,7 +476,7 @@ function applyImageIndents(html: string, levels: number[]): string {
 const htmlCache = new Map<string, string>();
 const MAX_HTML_CACHE = 24;
 /** Incrementar al cambiar post-procesado HTML de la Vista. */
-const PREVIEW_HTML_VERSION = 9;
+const PREVIEW_HTML_VERSION = 10;
 
 function previewCacheKey(
   content: string,

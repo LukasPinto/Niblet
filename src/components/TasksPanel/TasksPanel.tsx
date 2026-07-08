@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type PointerEvent } from "react";
-import { FileText, LayoutList, Columns3 } from "lucide-react";
+import { FileText, LayoutList, Columns3, Search } from "lucide-react";
 import { useTasksStore } from "../../stores/tasksStore";
 import { useTabsStore } from "../../stores/tabsStore";
 import { useUiStore } from "../../stores/uiStore";
@@ -7,6 +7,8 @@ import { useVaultStore } from "../../stores/vaultStore";
 import {
   buildTaskTree,
   countNodes,
+  filterTaskNodes,
+  indexTaskNodes,
   sortNodesDocumentOrder,
   sourceLabel,
 } from "../../lib/taskParser";
@@ -21,15 +23,28 @@ const KANBAN_COLS: { status: Task["status"]; label: string; dot: string }[] = [
 
 const DRAG_THRESHOLD = 5;
 
-function ListMode() {
+function ListMode({ searchQuery }: { searchQuery: string }) {
   const tasks = useTasksStore((s) => s.tasks);
-  const roots = useMemo(() => buildTaskTree(tasks), [tasks]);
+  const { roots, nodeIndex } = useMemo(() => {
+    const tree = buildTaskTree(tasks);
+    return {
+      roots: filterTaskNodes(tree, searchQuery),
+      nodeIndex: indexTaskNodes(tree),
+    };
+  }, [tasks, searchQuery]);
+  const hasQuery = searchQuery.trim().length > 0;
 
   if (tasks.length === 0) {
     return (
       <p className="empty-hint">
         No se detectaron tareas. Añade <code>- [ ] algo</code> en cualquier nota.
       </p>
+    );
+  }
+
+  if (hasQuery && roots.length === 0) {
+    return (
+      <p className="empty-hint">Ninguna tarea coincide con «{searchQuery.trim()}».</p>
     );
   }
 
@@ -53,6 +68,8 @@ function ListMode() {
                   task={n.task}
                   variant="list"
                   subtasks={n.children}
+                  nodeIndex={nodeIndex}
+                  searchQuery={searchQuery}
                 />
               ))}
             </ul>
@@ -63,9 +80,16 @@ function ListMode() {
   );
 }
 
-function KanbanMode() {
+function KanbanMode({ searchQuery }: { searchQuery: string }) {
   const tasks = useTasksStore((s) => s.tasks);
-  const roots = useMemo(() => buildTaskTree(tasks), [tasks]);
+  const { roots, nodeIndex } = useMemo(() => {
+    const tree = buildTaskTree(tasks);
+    return {
+      roots: filterTaskNodes(tree, searchQuery),
+      nodeIndex: indexTaskNodes(tree),
+    };
+  }, [tasks, searchQuery]);
+  const hasQuery = searchQuery.trim().length > 0;
   const moveTo = useTasksStore((s) => s.moveTo);
   const kanbanRef = useRef<HTMLDivElement>(null);
   const sessionRef = useRef<{
@@ -179,6 +203,20 @@ function KanbanMode() {
 
   const ghostTask = dragKey ? byKey.get(dragKey) : null;
 
+  if (tasks.length === 0) {
+    return (
+      <p className="empty-hint">
+        No se detectaron tareas. Añade <code>- [ ] algo</code> en cualquier nota.
+      </p>
+    );
+  }
+
+  if (hasQuery && roots.length === 0) {
+    return (
+      <p className="empty-hint">Ninguna tarea coincide con «{searchQuery.trim()}».</p>
+    );
+  }
+
   return (
     <>
       <div className="kanban" ref={kanbanRef}>
@@ -221,6 +259,8 @@ function KanbanMode() {
                         variant="kanban"
                         dragging={dragging}
                         subtasks={n.children}
+                        nodeIndex={nodeIndex}
+                        searchQuery={searchQuery}
                       />
                     </div>
                   );
@@ -254,6 +294,7 @@ export default function TasksPanel() {
   const mode = useUiStore((s) => s.tasksMode);
   const setTasksMode = useUiStore((s) => s.setTasksMode);
   const updateConfig = useVaultStore((s) => s.updateConfig);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const setMode = (m: "list" | "kanban") => {
     setTasksMode(m);
@@ -285,7 +326,34 @@ export default function TasksPanel() {
         </div>
       </div>
 
-      {mode === "list" ? <ListMode /> : <KanbanMode />}
+      <div className="tasks-toolbar">
+        <div className="tasks-search">
+          <Search className="tasks-search-icon" aria-hidden />
+          <input
+            type="search"
+            className="tasks-search-input"
+            placeholder="Buscar tareas…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              className="tasks-search-clear"
+              onClick={() => setSearchQuery("")}
+              aria-label="Limpiar búsqueda"
+            >
+              ×
+            </button>
+          )}
+        </div>
+      </div>
+
+      {mode === "list" ? (
+        <ListMode searchQuery={searchQuery} />
+      ) : (
+        <KanbanMode searchQuery={searchQuery} />
+      )}
     </section>
   );
 }
