@@ -1,6 +1,6 @@
 [package]
 name = "niblet"
-version = "0.1.1"
+version = "0.1.2"
 description = "Niblet — app de notas Markdown con tareas, base de datos y sync"
 authors = ["Lukas"]
 license = "GPL-3.0-or-later"
